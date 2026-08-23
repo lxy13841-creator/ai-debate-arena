@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="由 Kimi 与 DeepSeek 担任正反方辩手的 AI 辩论赛界面"
+    />
+    <title>AI 辩论场</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="page-glow page-glow--left" aria-hidden="true"></div>
+    <div class="page-glow page-glow--right" aria-hidden="true"></div>
+
+    <main class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="AI 辩论场首页">
+          <span class="brand__mark" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </span>
+          <span>AI 辩论场</span>
+        </a>
+        <div class="status-chip" id="connectionStatus">
+          <span class="status-chip__dot"></span>
+          系统就绪
+        </div>
+      </header>
+
+      <section class="hero" aria-labelledby="pageTitle">
+        <p class="eyebrow">AI DEBATE ARENA</p>
+        <h1 id="pageTitle">观点交锋，<span>理性至上</span></h1>
+        <p class="hero__description">
+          输入本场辩题，自由选择 Kimi 或 DeepSeek 代表正反双方展开论辩。
+        </p>
+      </section>
+
+      <section class="topic-panel" aria-labelledby="topicLabel">
+        <div class="topic-panel__heading">
+          <div>
+            <p class="section-kicker">本场辩题</p>
+            <label id="topicLabel" for="topicInput">请输入一个值得讨论的问题</label>
+          </div>
+          <span class="topic-panel__count"><span id="topicCount">0</span>/120</span>
+        </div>
+
+        <div class="topic-form">
+          <input
+            id="topicInput"
+            type="text"
+            maxlength="120"
+            autocomplete="off"
+            placeholder="例如：人工智能的发展对人类社会利大于弊"
+          />
+          <button class="primary-button" id="startButton" type="button">
+            <span>开始辩论</span>
+            <span class="button-arrow" aria-hidden="true">→</span>
+          </button>
+        </div>
+        <p class="form-message" id="formMessage" role="alert"></p>
+      </section>
+
+      <section class="arena" aria-label="正反方辩论席位">
+        <article class="debater-card debater-card--affirmative" id="affirmativeCard">
+          <div class="debater-card__topline"></div>
+          <header class="debater-card__header">
+            <div class="side-badge side-badge--affirmative">正</div>
+            <div class="debater-card__identity">
+              <p>正方辩手</p>
+              <label class="model-picker" for="affirmativeModel">
+                <select id="affirmativeModel" aria-label="选择正方模型">
+                  <option value="kimi" selected>Kimi</option>
+                  <option value="deepseek">DeepSeek</option>
+                </select>
+                <span aria-hidden="true">⌄</span>
+              </label>
+            </div>
+            <span class="standby-badge" id="affirmativeState">等待中</span>
+          </header>
+          <div class="speech-box" id="affirmativeSpeech" aria-live="polite">
+            <span class="quote-mark" aria-hidden="true">“</span>
+            <p>辩论开始后，正方的发言将显示在这里。</p>
+          </div>
+          <footer class="debater-card__footer">
+            <span class="model-dot model-dot--kimi" id="affirmativeModelDot"></span>
+            <span id="affirmativeApiLabel">Kimi API</span>
+          </footer>
+        </article>
+
+        <div class="versus" aria-label="对阵">
+          <span></span>
+          <strong>VS</strong>
+          <span></span>
+        </div>
+
+        <article class="debater-card debater-card--negative" id="negativeCard">
+          <div class="debater-card__topline"></div>
+          <header class="debater-card__header">
+            <div class="side-badge side-badge--negative">反</div>
+            <div class="debater-card__identity">
+              <p>反方辩手</p>
+              <label class="model-picker" for="negativeModel">
+                <select id="negativeModel" aria-label="选择反方模型">
+                  <option value="kimi">Kimi</option>
+                  <option value="deepseek" selected>DeepSeek</option>
+                </select>
+                <span aria-hidden="true">⌄</span>
+              </label>
+            </div>
+            <span class="standby-badge" id="negativeState">等待中</span>
+          </header>
+          <div class="speech-box" id="negativeSpeech" aria-live="polite">
+            <span class="quote-mark" aria-hidden="true">“</span>
+            <p>辩论开始后，反方的发言将显示在这里。</p>
+          </div>
+          <footer class="debater-card__footer">
+            <span class="model-dot model-dot--deepseek" id="negativeModelDot"></span>
+            <span id="negativeApiLabel">DeepSeek API</span>
+          </footer>
+        </article>
+      </section>
+
+      <section class="control-bar" aria-label="辩论控制">
+        <div class="speaker-status">
+          <div class="speaker-status__icon" aria-hidden="true">
+            <span></span><span></span><span></span><span></span>
+          </div>
+          <div>
+            <p>当前状态</p>
+            <strong id="speakerHint">等待输入辩题</strong>
+          </div>
+        </div>
+
+        <div class="round-indicator" aria-label="当前轮次">
+          <span>轮次</span>
+          <strong id="roundNumber">—</strong>
+        </div>
+
+        <div class="debate-actions">
+          <button class="pause-button" id="pauseButton" type="button" disabled>
+            <span class="pause-button__icon" aria-hidden="true"></span>
+            <span id="pauseButtonLabel">暂停辩论</span>
+          </button>
+          <button class="stop-button" id="stopButton" type="button" disabled>
+            <span class="stop-button__icon" aria-hidden="true"></span>
+            停止辩论
+          </button>
+        </div>
+      </section>
+
+      <footer class="page-footer">
+        <p>你是本场辩论的出题人与裁判</p>
+        <span>固定身份 Agent · 自动轮次 · 本地记录</span>
+      </footer>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>
