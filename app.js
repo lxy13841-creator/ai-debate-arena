@@ -40,10 +40,30 @@ let pollTimer = null;
 let providerConfiguration = null;
 let hasOfferedInitialConfiguration = false;
 
-const modelNames = {
+const providerNames = {
   kimi: "Kimi",
   deepseek: "DeepSeek",
 };
+
+const modelNames = new Map(
+  [...affirmativeModel.options].map((option) => [
+    option.value,
+    option.textContent.trim(),
+  ]),
+);
+
+function selectedModel(select) {
+  const option = select.selectedOptions[0];
+  return {
+    provider: option.dataset.provider,
+    model: option.value,
+    name: option.textContent.trim(),
+  };
+}
+
+function displayModelName(seat) {
+  return modelNames.get(seat.model) || providerNames[seat.provider] || seat.model;
+}
 
 function setConnectionText(text) {
   connectionStatus.lastChild.textContent = ` ${text}`;
@@ -86,15 +106,15 @@ function closeApiKeyModal() {
 
 function selectedProvidersAreReady() {
   const selectedProviders = new Set([
-    affirmativeModel.value,
-    negativeModel.value,
+    selectedModel(affirmativeModel).provider,
+    selectedModel(negativeModel).provider,
   ]);
   const missing = [...selectedProviders].filter(
     (provider) => !providerConfiguration?.[provider]?.ready,
   );
   if (!missing.length) return true;
 
-  const names = missing.map((provider) => modelNames[provider]).join("、");
+  const names = missing.map((provider) => providerNames[provider]).join("、");
   const message = `请先配置 ${names} API Key。`;
   formMessage.textContent = message;
   setConnectionText("等待配置 API 密钥");
@@ -145,13 +165,13 @@ function setPauseMode(mode) {
 }
 
 function updateSeatLabels() {
-  const affirmativeName = modelNames[affirmativeModel.value];
-  const negativeName = modelNames[negativeModel.value];
+  const affirmative = selectedModel(affirmativeModel);
+  const negative = selectedModel(negativeModel);
 
-  affirmativeApiLabel.textContent = `${affirmativeName} API`;
-  negativeApiLabel.textContent = `${negativeName} API`;
-  affirmativeModelDot.className = `model-dot model-dot--${affirmativeModel.value}`;
-  negativeModelDot.className = `model-dot model-dot--${negativeModel.value}`;
+  affirmativeApiLabel.textContent = `${affirmative.name} API`;
+  negativeApiLabel.textContent = `${negative.name} API`;
+  affirmativeModelDot.className = `model-dot model-dot--${affirmative.provider}`;
+  negativeModelDot.className = `model-dot model-dot--${negative.provider}`;
 }
 
 function updateCharacterCount() {
@@ -182,13 +202,15 @@ function clearActiveSpeaker() {
 }
 
 async function createDebateRecord(topic) {
+  const affirmative = selectedModel(affirmativeModel);
+  const negative = selectedModel(negativeModel);
   const response = await fetch("/api/debates", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       topic,
-      affirmative: { provider: affirmativeModel.value },
-      negative: { provider: negativeModel.value },
+      affirmative: { provider: affirmative.provider, model: affirmative.model },
+      negative: { provider: negative.provider, model: negative.model },
     }),
   });
 
@@ -246,7 +268,7 @@ function renderRunningDebate(debate) {
     state.textContent = "生成中";
     speakerHint.textContent = debate.pauseRequested
       ? `${sideName}完成本次发言后暂停`
-      : `第 ${debate.currentRound} 轮 · ${sideName} ${modelNames[currentSeat.provider]} 正在发言`;
+      : `第 ${debate.currentRound} 轮 · ${sideName} ${displayModelName(currentSeat)} 正在发言`;
   } else {
     speakerHint.textContent = debate.pauseRequested
       ? "正在进入暂停状态"

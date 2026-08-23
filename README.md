@@ -11,7 +11,7 @@
    - Windows：双击 `启动辩论场.bat`。
    - macOS / Linux：在项目目录运行 `chmod +x start.sh && ./start.sh`。
 3. 浏览器会自动打开 `http://127.0.0.1:4173/`。首次使用时，在网页弹窗中粘贴 Kimi、DeepSeek 或两者的 API Key；点击输入框右侧的“显示”可以检查已输入的内容。
-4. 保存后输入辩题即可开始；以后也可以点击页面右上角的“API 密钥”重新配置。
+4. 为正反双方分别选择 Kimi K2.6、Kimi K3、DeepSeek V4 Pro 或 DeepSeek V4 Flash，输入辩题即可开始；以后也可以点击页面右上角的“API 密钥”重新配置。
 
 密钥只会保存到本机的 `.env` 文件中；该文件已被 `.gitignore` 排除，不会上传到 GitHub。只有本场实际选择的模型需要配置密钥。例如正反双方都选择 Kimi 时，只需配置 Kimi 密钥。
 
@@ -19,6 +19,8 @@
 - [申请 DeepSeek API Key](https://platform.deepseek.com/api_keys)
 
 > API 调用可能产生费用，请在对应平台查看余额和计费规则。停止终端中的程序或点击页面上的“停止辩论”可停止继续调用。
+
+> Kimi K3 始终使用思考模式，项目会采用较低推理强度以控制单轮等待时间。Kimi 开放平台可能要求充值后才能调用 K3，具体以 [Kimi K3 官方说明](https://platform.kimi.com/docs/guide/kimi-k3-quickstart) 为准。
 
 ## 手动配置
 

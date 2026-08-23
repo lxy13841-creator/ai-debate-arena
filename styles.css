@@ -393,13 +393,13 @@ button {
 .model-picker {
   position: relative;
   display: inline-flex;
-  max-width: 150px;
+  max-width: 205px;
   align-items: center;
 }
 
 .model-picker select {
   width: auto;
-  max-width: 150px;
+  max-width: 205px;
   margin: 0;
   padding: 0 23px 0 0;
   border: 0;

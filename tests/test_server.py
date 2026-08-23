@@ -110,6 +110,32 @@ class ServerApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(payload["debate"]["status"], "stopped")
 
+    def test_selected_kimi_k3_and_deepseek_flash_models_are_preserved(self):
+        status, payload = self.request_json(
+            "/api/debates",
+            method="POST",
+            payload={
+                "topic": "新模型测试",
+                "affirmative": {"provider": "kimi", "model": "kimi-k3"},
+                "negative": {
+                    "provider": "deepseek",
+                    "model": "deepseek-v4-flash",
+                },
+            },
+        )
+
+        self.assertEqual(status, 201)
+        debate = payload["debate"]
+        self.assertEqual(debate["affirmative"]["model"], "kimi-k3")
+        self.assertEqual(debate["negative"]["model"], "deepseek-v4-flash")
+
+    def test_model_must_belong_to_selected_provider(self):
+        self.assertFalse(
+            server.DebateRequestHandler.valid_side(
+                {"provider": "kimi", "model": "deepseek-v4-flash"}
+            )
+        )
+
     def test_api_keys_can_be_saved_without_returning_them(self):
         kimi_key = "unit-test-kimi-key"
         deepseek_key = "unit-test-deepseek-key"

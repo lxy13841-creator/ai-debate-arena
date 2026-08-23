@@ -1,8 +1,64 @@
+import json
 import threading
 import unittest
 from unittest.mock import patch
 
-from debate_agent import CompletionResult, DebaterAgent, DebateRunner, SpeechResult
+from debate_agent import (
+    ChatCompletionClient,
+    CompletionResult,
+    DebaterAgent,
+    DebateRunner,
+    ProviderSettings,
+    SpeechResult,
+)
+
+
+class FakeCompletionResponse:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    @staticmethod
+    def read():
+        return json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {"content": "测试回复"},
+                        "finish_reason": "stop",
+                    }
+                ]
+            }
+        ).encode("utf-8")
+
+
+class ChatCompletionClientTests(unittest.TestCase):
+    def request_payload_for(self, model):
+        settings = ProviderSettings(
+            provider="kimi",
+            api_url="https://example.invalid/chat/completions",
+            api_key="unit-test-key",
+            model=model,
+        )
+        client = ChatCompletionClient(settings)
+        with patch("debate_agent.urlopen", return_value=FakeCompletionResponse()) as request:
+            client.complete([{"role": "user", "content": "测试"}], max_tokens=800)
+        return json.loads(request.call_args.args[0].data.decode("utf-8"))
+
+    def test_kimi_k3_uses_supported_reasoning_parameters(self):
+        payload = self.request_payload_for("kimi-k3")
+
+        self.assertEqual(payload["reasoning_effort"], "low")
+        self.assertNotIn("thinking", payload)
+        self.assertEqual(payload["max_completion_tokens"], 800)
+
+    def test_kimi_k2_6_keeps_non_thinking_mode(self):
+        payload = self.request_payload_for("kimi-k2.6")
+
+        self.assertEqual(payload["thinking"], {"type": "disabled"})
+        self.assertNotIn("reasoning_effort", payload)
 
 
 class FakeDebaterAgent:

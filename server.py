@@ -17,6 +17,7 @@ from urllib.parse import unquote, urlparse
 
 from debate_agent import (
     DebateRunner,
+    PROVIDER_MODELS,
     SpeechResult,
     default_model,
     provider_is_ready,
@@ -710,8 +711,13 @@ class DebateRequestHandler(SimpleHTTPRequestHandler):
             return False
         provider = side.get("provider")
         model = side.get("model")
-        return provider in {"kimi", "deepseek"} and (
-            model is None or (isinstance(model, str) and bool(model.strip()))
+        if not isinstance(provider, str) or provider not in PROVIDER_MODELS:
+            return False
+        if model is None:
+            return True
+        return (
+            isinstance(model, str)
+            and model.strip() in PROVIDER_MODELS[provider]
         )
 
     @staticmethod

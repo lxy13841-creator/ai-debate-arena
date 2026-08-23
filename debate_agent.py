@@ -27,6 +27,11 @@ PROVIDER_DEFAULTS = {
     },
 }
 
+PROVIDER_MODELS = {
+    "kimi": ("kimi-k2.6", "kimi-k3"),
+    "deepseek": ("deepseek-v4-pro", "deepseek-v4-flash"),
+}
+
 
 class DebateAgentError(RuntimeError):
     pass
@@ -105,7 +110,11 @@ class ChatCompletionClient:
         }
         if self.settings.provider == "kimi":
             payload["max_completion_tokens"] = max_tokens
-            payload["thinking"] = {"type": "disabled"}
+            if self.settings.model == "kimi-k3":
+                # Kimi K3 always reasons; "low" keeps debate turns responsive.
+                payload["reasoning_effort"] = "low"
+            else:
+                payload["thinking"] = {"type": "disabled"}
         else:
             payload["max_tokens"] = max_tokens
             payload["thinking"] = {"type": "disabled"}
