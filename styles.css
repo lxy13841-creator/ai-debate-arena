@@ -393,44 +393,168 @@ button {
 .model-picker {
   position: relative;
   display: inline-flex;
-  max-width: 205px;
+  max-width: 215px;
   align-items: center;
 }
 
-.model-picker select {
-  width: auto;
-  max-width: 205px;
-  margin: 0;
-  padding: 0 23px 0 0;
-  border: 0;
-  outline: none;
-  appearance: none;
+.model-picker__native {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.model-picker__trigger {
+  display: inline-flex;
+  gap: 9px;
+  max-width: 215px;
+  align-items: center;
+  padding: 1px 0;
   color: var(--text);
   background: transparent;
   font-family: "Space Grotesk", sans-serif;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.02em;
   cursor: pointer;
+  transition: color 160ms ease;
 }
 
-.model-picker span {
-  position: absolute;
-  right: 2px;
+.model-picker__trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-picker__chevron {
+  flex: 0 0 auto;
   color: #6d737e;
-  font-size: 17px;
-  pointer-events: none;
-  transform: translateY(-1px);
+  font-family: "Noto Sans SC", system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1;
+  transition: color 160ms ease, transform 160ms ease;
 }
 
-.model-picker:hover span,
-.model-picker:focus-within span {
+.model-picker__trigger:hover,
+.model-picker__trigger:focus-visible,
+.model-picker.is-open .model-picker__trigger {
   color: var(--accent);
 }
 
-.model-picker select:disabled {
+.model-picker__trigger:hover .model-picker__chevron,
+.model-picker__trigger:focus-visible .model-picker__chevron,
+.model-picker.is-open .model-picker__chevron {
+  color: var(--accent);
+}
+
+.model-picker.is-open .model-picker__chevron {
+  transform: rotate(180deg);
+}
+
+.model-picker__trigger:focus-visible {
+  outline: 2px solid rgba(221, 255, 98, 0.55);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.model-picker__trigger:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+.model-picker__menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 9px);
+  left: -12px;
+  width: 236px;
+  max-width: calc(100vw - 52px);
+  padding: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 13px;
+  background: rgba(15, 18, 25, 0.98);
+  box-shadow: 0 18px 45px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(18px);
+}
+
+.model-picker__menu[hidden] {
+  display: none;
+}
+
+.model-picker__group-label {
+  padding: 5px 9px 3px;
+  color: #737a87;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.model-picker__group-label:not(:first-child) {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.model-picker__option {
+  display: flex;
+  gap: 9px;
+  width: 100%;
+  align-items: center;
+  padding: 8px 9px;
+  border-radius: 8px;
+  color: #c7cbd3;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.model-picker__option:hover,
+.model-picker__option:focus-visible {
+  outline: none;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.065);
+}
+
+.model-picker__option[aria-selected="true"] {
+  color: var(--accent);
+  background: rgba(221, 255, 98, 0.09);
+}
+
+.model-picker__provider-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+.model-picker__provider-dot--kimi {
+  background: var(--affirmative);
+  box-shadow: 0 0 9px rgba(255, 81, 72, 0.55);
+}
+
+.model-picker__provider-dot--deepseek {
+  background: var(--negative);
+  box-shadow: 0 0 9px rgba(79, 131, 255, 0.55);
+}
+
+.model-picker__option-label {
+  min-width: 0;
+  flex: 1;
+}
+
+.model-picker__check {
+  color: var(--accent);
+  font-size: 12px;
+  opacity: 0;
+}
+
+.model-picker__option[aria-selected="true"] .model-picker__check {
+  opacity: 1;
 }
 
 .standby-badge {
@@ -947,6 +1071,15 @@ body.modal-open {
 
   .debater-card__header {
     padding: 18px 17px 15px;
+  }
+
+  .model-picker__trigger {
+    max-width: 145px;
+    font-size: 18px;
+  }
+
+  .model-picker__menu {
+    left: -52px;
   }
 
   .speech-box {

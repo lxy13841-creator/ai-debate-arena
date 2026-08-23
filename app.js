@@ -51,6 +51,7 @@ const modelNames = new Map(
     option.textContent.trim(),
   ]),
 );
+const modelPickerControls = new Map();
 
 function selectedModel(select) {
   const option = select.selectedOptions[0];
@@ -63,6 +64,181 @@ function selectedModel(select) {
 
 function displayModelName(seat) {
   return modelNames.get(seat.model) || providerNames[seat.provider] || seat.model;
+}
+
+function closeModelPickers(exceptPicker = null) {
+  modelPickerControls.forEach((control) => {
+    if (control.picker !== exceptPicker) control.close();
+  });
+}
+
+function setupModelPicker(select) {
+  const picker = select.closest(".model-picker");
+  select.classList.add("model-picker__native");
+  select.hidden = true;
+  select.tabIndex = -1;
+  select.setAttribute("aria-hidden", "true");
+
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "model-picker__trigger";
+  trigger.setAttribute("aria-haspopup", "listbox");
+  trigger.setAttribute("aria-expanded", "false");
+
+  const triggerLabel = document.createElement("span");
+  triggerLabel.className = "model-picker__trigger-label";
+  const chevron = document.createElement("span");
+  chevron.className = "model-picker__chevron";
+  chevron.setAttribute("aria-hidden", "true");
+  chevron.textContent = "▼";
+  trigger.append(triggerLabel, chevron);
+
+  const menu = document.createElement("div");
+  menu.id = `${select.id}Menu`;
+  menu.className = "model-picker__menu";
+  menu.setAttribute("role", "listbox");
+  menu.setAttribute("aria-label", select.getAttribute("aria-label"));
+  menu.hidden = true;
+  trigger.setAttribute("aria-controls", menu.id);
+
+  const optionButtons = [];
+  [...select.children].forEach((group) => {
+    const options = group.matches("optgroup")
+      ? [...group.querySelectorAll("option")]
+      : group.matches("option")
+        ? [group]
+        : [];
+    if (!options.length) return;
+
+    if (group.matches("optgroup")) {
+      const groupLabel = document.createElement("div");
+      groupLabel.className = "model-picker__group-label";
+      groupLabel.textContent = group.label;
+      menu.append(groupLabel);
+    }
+
+    options.forEach((option) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "model-picker__option";
+      button.dataset.value = option.value;
+      button.setAttribute("role", "option");
+      button.tabIndex = -1;
+
+      const providerDot = document.createElement("span");
+      providerDot.className =
+        `model-picker__provider-dot model-picker__provider-dot--${option.dataset.provider}`;
+      providerDot.setAttribute("aria-hidden", "true");
+
+      const label = document.createElement("span");
+      label.className = "model-picker__option-label";
+      label.textContent = option.textContent.trim();
+
+      const check = document.createElement("span");
+      check.className = "model-picker__check";
+      check.setAttribute("aria-hidden", "true");
+      check.textContent = "✓";
+
+      button.append(providerDot, label, check);
+      menu.append(button);
+      optionButtons.push(button);
+    });
+  });
+
+  function selectedButtonIndex() {
+    return optionButtons.findIndex((button) => button.dataset.value === select.value);
+  }
+
+  function sync() {
+    const option = select.selectedOptions[0];
+    triggerLabel.textContent = option.textContent.trim();
+    trigger.setAttribute(
+      "aria-label",
+      `${select.getAttribute("aria-label")}，当前 ${option.textContent.trim()}`,
+    );
+    optionButtons.forEach((button) => {
+      const selected = button.dataset.value === select.value;
+      button.setAttribute("aria-selected", String(selected));
+      button.tabIndex = selected ? 0 : -1;
+    });
+  }
+
+  function close() {
+    menu.hidden = true;
+    picker.classList.remove("is-open");
+    trigger.setAttribute("aria-expanded", "false");
+  }
+
+  function focusOption(index) {
+    const normalizedIndex = (index + optionButtons.length) % optionButtons.length;
+    optionButtons[normalizedIndex].focus();
+  }
+
+  function open({ focusSelected = false } = {}) {
+    if (trigger.disabled) return;
+    closeModelPickers(picker);
+    menu.hidden = false;
+    picker.classList.add("is-open");
+    trigger.setAttribute("aria-expanded", "true");
+    if (focusSelected) {
+      window.setTimeout(() => focusOption(selectedButtonIndex()), 0);
+    }
+  }
+
+  function choose(button) {
+    select.value = button.dataset.value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    sync();
+    close();
+    trigger.focus();
+  }
+
+  trigger.addEventListener("click", () => {
+    if (menu.hidden) open();
+    else close();
+  });
+  trigger.addEventListener("keydown", (event) => {
+    if (!["ArrowDown", "ArrowUp"].includes(event.key)) return;
+    event.preventDefault();
+    open({ focusSelected: true });
+  });
+
+  optionButtons.forEach((button, index) => {
+    button.addEventListener("click", () => choose(button));
+    button.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        focusOption(index + (event.key === "ArrowDown" ? 1 : -1));
+      } else if (event.key === "Home" || event.key === "End") {
+        event.preventDefault();
+        focusOption(event.key === "Home" ? 0 : optionButtons.length - 1);
+      } else if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        choose(button);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        close();
+        trigger.focus();
+      } else if (event.key === "Tab") {
+        close();
+      }
+    });
+  });
+
+  select.addEventListener("change", sync);
+  picker.append(trigger, menu);
+
+  const control = {
+    picker,
+    close,
+    syncDisabled() {
+      trigger.disabled = select.disabled;
+      if (trigger.disabled) close();
+    },
+  };
+  modelPickerControls.set(select, control);
+  sync();
+  control.syncDisabled();
 }
 
 function setConnectionText(text) {
@@ -81,6 +257,7 @@ function renderApiKeyStatuses() {
 }
 
 function openApiKeyModal(message = "") {
+  closeModelPickers();
   renderApiKeyStatuses();
   apiKeyMessage.textContent = message;
   apiKeyModal.hidden = false;
@@ -182,8 +359,10 @@ function updateCharacterCount() {
 function setRunningControls(running) {
   isRunning = running;
   topicInput.disabled = running;
-  affirmativeModel.disabled = running;
-  negativeModel.disabled = running;
+  [affirmativeModel, negativeModel].forEach((select) => {
+    select.disabled = running;
+    modelPickerControls.get(select)?.syncDisabled();
+  });
   startButton.disabled = running;
   pauseButton.disabled = !running;
   stopButton.disabled = !running;
@@ -469,7 +648,14 @@ document.querySelectorAll("[data-secret-toggle]").forEach((button) => {
   });
 });
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !apiKeyModal.hidden) closeApiKeyModal();
+  if (event.key !== "Escape") return;
+  closeModelPickers();
+  if (!apiKeyModal.hidden) closeApiKeyModal();
+});
+document.addEventListener("click", (event) => {
+  modelPickerControls.forEach((control) => {
+    if (!control.picker.contains(event.target)) control.close();
+  });
 });
 window.addEventListener("beforeunload", () => {
   if (!activeDebateId) return;
@@ -481,5 +667,7 @@ window.addEventListener("beforeunload", () => {
   });
 });
 
+setupModelPicker(affirmativeModel);
+setupModelPicker(negativeModel);
 updateSeatLabels();
 checkConfiguration();
