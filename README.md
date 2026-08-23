@@ -10,8 +10,8 @@
 2. 启动项目：
    - Windows：双击 `启动辩论场.bat`。
    - macOS / Linux：在项目目录运行 `chmod +x start.sh && ./start.sh`。
-3. 首次启动时选择 Kimi、DeepSeek 或两者，然后粘贴自己的 API Key。输入密钥时终端不会显示字符。
-4. 浏览器会自动打开 `http://127.0.0.1:4173/`，输入辩题即可开始。
+3. 浏览器会自动打开 `http://127.0.0.1:4173/`。首次使用时，在网页弹窗中粘贴 Kimi、DeepSeek 或两者的 API Key；点击输入框右侧的“显示”可以检查已输入的内容。
+4. 保存后输入辩题即可开始；以后也可以点击页面右上角的“API 密钥”重新配置。
 
 密钥只会保存到本机的 `.env` 文件中；该文件已被 `.gitignore` 排除，不会上传到 GitHub。只有本场实际选择的模型需要配置密钥。例如正反双方都选择 Kimi 时，只需配置 Kimi 密钥。
 
@@ -22,7 +22,7 @@
 
 ## 手动配置
 
-如果不使用首次启动向导，将 `.env.example` 复制为 `.env`，填写一个或两个密钥：
+如果不使用网页配置，将 `.env.example` 复制为 `.env`，填写一个或两个密钥：
 
 ```dotenv
 MOONSHOT_API_KEY=你的_Kimi_API_Key
@@ -35,7 +35,7 @@ DEEPSEEK_API_KEY=你的_DeepSeek_API_Key
 python launcher.py --open
 ```
 
-要重新进入密钥配置向导，可运行：
+网页配置是推荐方式。也可以使用旧的终端配置向导：
 
 ```bash
 python launcher.py --configure --open
@@ -85,7 +85,7 @@ data/debates/
 
 ## 项目结构
 
-- `launcher.py`：首次启动和本地密钥配置向导。
+- `launcher.py`：启动本地服务；可选提供终端密钥配置向导。
 - `debate_agent.py`：模型请求、固定身份辩手和轮次循环。
 - `server.py`：本地 HTTP API、后台任务和 JSON 持久化。
 - `index.html`、`styles.css`、`app.js`：网页界面。
@@ -100,6 +100,6 @@ python -m unittest discover -s tests -v
 ## 常见问题
 
 - 提示找不到 Python：从 [Python 官网](https://www.python.org/downloads/) 安装 Python 3.10+，Windows 安装时勾选“Add Python to PATH”。
-- 提示密钥未配置：运行 `python launcher.py --configure --open`，或检查 `.env` 中对应的密钥。
+- 提示密钥未配置：点击页面右上角的“API 密钥”进行配置，或检查 `.env` 中对应的密钥。
 - 浏览器没有自动打开：手动访问 `http://127.0.0.1:4173/`。
 - 端口 4173 被占用：先关闭此前启动的 AI 辩论场或其他占用该端口的程序。

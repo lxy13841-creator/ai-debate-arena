@@ -104,14 +104,15 @@ def main() -> int:
     if force_configure:
         sys.argv.remove("--configure")
 
-    if force_configure or not has_configured_key():
+    if force_configure:
         if not sys.stdin.isatty():
-            print("尚未配置 API 密钥。请将 .env.example 复制为 .env 并填写密钥。")
+            print("当前终端无法交互输入，请在网页的 API 密钥设置中配置。")
             return 1
         if not configure_keys():
             return 1
 
-    # server 会在导入时读取刚刚创建的 .env，因此必须延迟导入。
+    # 正常启动无需预先配置；网页会引导用户把密钥保存到本机 .env。
+    # server 会在导入时读取可能已经存在的 .env，因此必须延迟导入。
     import server
 
     server.main()

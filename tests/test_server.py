@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import threading
 import unittest
@@ -13,8 +14,20 @@ import server
 class ServerApiTests(unittest.TestCase):
     def setUp(self):
         self.temporary_directory = tempfile.TemporaryDirectory()
+        self.api_key_names = (
+            "MOONSHOT_API_KEY",
+            "KIMI_API_KEY",
+            "DEEPSEEK_API_KEY",
+        )
+        self.original_api_keys = {
+            key: os.environ.get(key) for key in self.api_key_names
+        }
+        for key in self.api_key_names:
+            os.environ.pop(key, None)
+        temporary_path = Path(self.temporary_directory.name)
         self.patches = [
-            patch.object(server, "DATA_DIR", Path(self.temporary_directory.name)),
+            patch.object(server, "DATA_DIR", temporary_path / "debates"),
+            patch.object(server, "ENV_PATH", temporary_path / ".env"),
             patch.object(server, "provider_is_ready", return_value=True),
             patch.object(
                 server,
@@ -42,6 +55,12 @@ class ServerApiTests(unittest.TestCase):
         self.thread.join(timeout=2)
         for active_patch in reversed(self.patches):
             active_patch.stop()
+        for key in self.api_key_names:
+            original_value = self.original_api_keys[key]
+            if original_value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = original_value
         self.temporary_directory.cleanup()
 
     def request_json(self, path, method="GET", payload=None):
@@ -90,6 +109,46 @@ class ServerApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual(payload["debate"]["status"], "stopped")
+
+    def test_api_keys_can_be_saved_without_returning_them(self):
+        kimi_key = "unit-test-kimi-key"
+        deepseek_key = "unit-test-deepseek-key"
+
+        status, payload = self.request_json(
+            "/api/config/keys",
+            method="POST",
+            payload={
+                "keys": {
+                    "kimi": kimi_key,
+                    "deepseek": deepseek_key,
+                }
+            },
+        )
+
+        self.assertEqual(status, 200)
+        self.assertNotIn(kimi_key, json.dumps(payload))
+        self.assertNotIn(deepseek_key, json.dumps(payload))
+        self.assertEqual(os.environ["MOONSHOT_API_KEY"], kimi_key)
+        self.assertEqual(os.environ["DEEPSEEK_API_KEY"], deepseek_key)
+        env_contents = server.ENV_PATH.read_text(encoding="utf-8")
+        self.assertIn(f"MOONSHOT_API_KEY={kimi_key}", env_contents)
+        self.assertIn(f"DEEPSEEK_API_KEY={deepseek_key}", env_contents)
+
+    def test_local_server_refuses_to_share_its_port(self):
+        first_server = server.LocalThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            server.DebateRequestHandler,
+        )
+        try:
+            address = first_server.server_address
+            with self.assertRaises(OSError):
+                second_server = server.LocalThreadingHTTPServer(
+                    address,
+                    server.DebateRequestHandler,
+                )
+                second_server.server_close()
+        finally:
+            first_server.server_close()
 
     def test_record_write_retries_transient_windows_permission_error(self):
         record = {

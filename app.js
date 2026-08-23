@@ -21,11 +21,24 @@ const affirmativeModelDot = document.querySelector("#affirmativeModelDot");
 const negativeModelDot = document.querySelector("#negativeModelDot");
 const affirmativeApiLabel = document.querySelector("#affirmativeApiLabel");
 const negativeApiLabel = document.querySelector("#negativeApiLabel");
+const apiSettingsButton = document.querySelector("#apiSettingsButton");
+const apiKeyModal = document.querySelector("#apiKeyModal");
+const apiKeyModalClose = document.querySelector("#apiKeyModalClose");
+const apiKeyCancel = document.querySelector("#apiKeyCancel");
+const apiKeyForm = document.querySelector("#apiKeyForm");
+const apiKeySave = document.querySelector("#apiKeySave");
+const apiKeyMessage = document.querySelector("#apiKeyMessage");
+const kimiApiKey = document.querySelector("#kimiApiKey");
+const deepseekApiKey = document.querySelector("#deepseekApiKey");
+const kimiKeyStatus = document.querySelector("#kimiKeyStatus");
+const deepseekKeyStatus = document.querySelector("#deepseekKeyStatus");
 
 let isRunning = false;
 let isPaused = false;
 let activeDebateId = null;
 let pollTimer = null;
+let providerConfiguration = null;
+let hasOfferedInitialConfiguration = false;
 
 const modelNames = {
   kimi: "Kimi",
@@ -34,6 +47,96 @@ const modelNames = {
 
 function setConnectionText(text) {
   connectionStatus.lastChild.textContent = ` ${text}`;
+}
+
+function renderApiKeyStatuses() {
+  const statuses = [
+    [kimiKeyStatus, providerConfiguration?.kimi?.ready],
+    [deepseekKeyStatus, providerConfiguration?.deepseek?.ready],
+  ];
+  statuses.forEach(([element, ready]) => {
+    element.textContent = ready ? "已配置" : "未配置";
+    element.classList.toggle("is-ready", Boolean(ready));
+  });
+}
+
+function openApiKeyModal(message = "") {
+  renderApiKeyStatuses();
+  apiKeyMessage.textContent = message;
+  apiKeyModal.hidden = false;
+  document.body.classList.add("modal-open");
+  const firstMissingInput = providerConfiguration?.kimi?.ready
+    ? deepseekApiKey
+    : kimiApiKey;
+  window.setTimeout(() => firstMissingInput.focus(), 0);
+}
+
+function closeApiKeyModal() {
+  apiKeyForm.reset();
+  kimiApiKey.type = "password";
+  deepseekApiKey.type = "password";
+  document.querySelectorAll("[data-secret-toggle]").forEach((button) => {
+    button.textContent = "显示";
+  });
+  apiKeyMessage.textContent = "";
+  apiKeyModal.hidden = true;
+  document.body.classList.remove("modal-open");
+  apiSettingsButton.focus();
+}
+
+function selectedProvidersAreReady() {
+  const selectedProviders = new Set([
+    affirmativeModel.value,
+    negativeModel.value,
+  ]);
+  const missing = [...selectedProviders].filter(
+    (provider) => !providerConfiguration?.[provider]?.ready,
+  );
+  if (!missing.length) return true;
+
+  const names = missing.map((provider) => modelNames[provider]).join("、");
+  const message = `请先配置 ${names} API Key。`;
+  formMessage.textContent = message;
+  setConnectionText("等待配置 API 密钥");
+  openApiKeyModal(message);
+  return false;
+}
+
+async function saveApiKeys(event) {
+  event.preventDefault();
+  const keys = {};
+  const kimiValue = kimiApiKey.value.trim();
+  const deepseekValue = deepseekApiKey.value.trim();
+  if (kimiValue) keys.kimi = kimiValue;
+  if (deepseekValue) keys.deepseek = deepseekValue;
+
+  if (!Object.keys(keys).length) {
+    apiKeyMessage.textContent = "请至少输入一个 API Key。";
+    return;
+  }
+
+  apiKeySave.disabled = true;
+  apiKeySave.textContent = "正在保存…";
+  apiKeyMessage.textContent = "";
+  try {
+    const response = await fetch("/api/config/keys", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ keys }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "无法保存 API 密钥");
+    providerConfiguration = payload.providers;
+    renderApiKeyStatuses();
+    setConnectionText("系统就绪");
+    formMessage.textContent = "API 密钥已保存到本机。";
+    closeApiKeyModal();
+  } catch (error) {
+    apiKeyMessage.textContent = error.message;
+  } finally {
+    apiKeySave.disabled = false;
+    apiKeySave.textContent = "保存到本机";
+  }
 }
 
 function setPauseMode(mode) {
@@ -234,6 +337,11 @@ async function startDebate() {
     return;
   }
 
+  if (!providerConfiguration) {
+    await checkConfiguration({ openWhenEmpty: false });
+  }
+  if (!selectedProvidersAreReady()) return;
+
   setRunningControls(true);
   pauseButton.disabled = true;
   stopButton.disabled = true;
@@ -251,6 +359,7 @@ async function startDebate() {
     speakerHint.textContent = "辩论创建失败";
     setConnectionText("等待配置");
     formMessage.textContent = error.message;
+    if (error.message.includes("API 密钥")) openApiKeyModal(error.message);
     return;
   }
 
@@ -293,15 +402,22 @@ async function stopDebate() {
   }
 }
 
-async function checkConfiguration() {
+async function checkConfiguration({ openWhenEmpty = true } = {}) {
   try {
     const response = await fetch("/api/config");
     if (!response.ok) throw new Error();
     const payload = await response.json();
+    providerConfiguration = payload.providers;
     const ready = Object.values(payload.providers).some((provider) => provider.ready);
     setConnectionText(ready ? "系统就绪" : "等待配置 API 密钥");
+    if (openWhenEmpty && !ready && !hasOfferedInitialConfiguration) {
+      hasOfferedInitialConfiguration = true;
+      openApiKeyModal("首次使用，请先填写至少一个 API Key。");
+    }
+    return payload.providers;
   } catch {
     setConnectionText("本地服务未连接");
+    return null;
   }
 }
 
@@ -314,6 +430,25 @@ topicInput.addEventListener("keydown", (event) => {
 startButton.addEventListener("click", startDebate);
 pauseButton.addEventListener("click", togglePause);
 stopButton.addEventListener("click", stopDebate);
+apiSettingsButton.addEventListener("click", () => openApiKeyModal());
+apiKeyModalClose.addEventListener("click", closeApiKeyModal);
+apiKeyCancel.addEventListener("click", closeApiKeyModal);
+apiKeyForm.addEventListener("submit", saveApiKeys);
+apiKeyModal.addEventListener("click", (event) => {
+  if (event.target === apiKeyModal) closeApiKeyModal();
+});
+document.querySelectorAll("[data-secret-toggle]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const input = document.querySelector(`#${button.dataset.secretToggle}`);
+    const show = input.type === "password";
+    input.type = show ? "text" : "password";
+    button.textContent = show ? "隐藏" : "显示";
+    input.focus();
+  });
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !apiKeyModal.hidden) closeApiKeyModal();
+});
 window.addEventListener("beforeunload", () => {
   if (!activeDebateId) return;
   fetch(`/api/debates/${encodeURIComponent(activeDebateId)}`, {

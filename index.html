@@ -24,9 +24,15 @@
           </span>
           <span>AI 辩论场</span>
         </a>
-        <div class="status-chip" id="connectionStatus">
-          <span class="status-chip__dot"></span>
-          系统就绪
+        <div class="topbar__actions">
+          <button class="api-settings-button" id="apiSettingsButton" type="button">
+            <span aria-hidden="true">⌁</span>
+            API 密钥
+          </button>
+          <div class="status-chip" id="connectionStatus">
+            <span class="status-chip__dot"></span>
+            系统就绪
+          </div>
         </div>
       </header>
 
@@ -156,6 +162,92 @@
         <span>固定身份 Agent · 自动轮次 · 本地记录</span>
       </footer>
     </main>
+
+    <div class="modal-backdrop" id="apiKeyModal" hidden>
+      <section
+        class="api-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="apiKeyModalTitle"
+      >
+        <header class="api-modal__header">
+          <div>
+            <p class="section-kicker">LOCAL API SETTINGS</p>
+            <h2 id="apiKeyModalTitle">配置模型 API 密钥</h2>
+          </div>
+          <button
+            class="modal-close-button"
+            id="apiKeyModalClose"
+            type="button"
+            aria-label="关闭 API 密钥设置"
+          >
+            ×
+          </button>
+        </header>
+
+        <p class="api-modal__description">
+          密钥通过本机服务保存到 <code>.env</code>，不会显示在页面、辩论记录或 GitHub 中。
+          留空表示不修改已经配置的密钥。
+        </p>
+
+        <form id="apiKeyForm">
+          <div class="api-key-field">
+            <div class="api-key-field__heading">
+              <label for="kimiApiKey">Kimi API Key</label>
+              <span id="kimiKeyStatus">未配置</span>
+            </div>
+            <div class="secret-input">
+              <input
+                id="kimiApiKey"
+                type="password"
+                autocomplete="new-password"
+                spellcheck="false"
+                placeholder="粘贴 MOONSHOT_API_KEY"
+              />
+              <button type="button" data-secret-toggle="kimiApiKey">显示</button>
+            </div>
+            <a
+              href="https://platform.moonshot.cn/console/api-keys"
+              target="_blank"
+              rel="noreferrer"
+            >申请 Kimi API Key</a>
+          </div>
+
+          <div class="api-key-field">
+            <div class="api-key-field__heading">
+              <label for="deepseekApiKey">DeepSeek API Key</label>
+              <span id="deepseekKeyStatus">未配置</span>
+            </div>
+            <div class="secret-input">
+              <input
+                id="deepseekApiKey"
+                type="password"
+                autocomplete="new-password"
+                spellcheck="false"
+                placeholder="粘贴 DEEPSEEK_API_KEY"
+              />
+              <button type="button" data-secret-toggle="deepseekApiKey">显示</button>
+            </div>
+            <a
+              href="https://platform.deepseek.com/api_keys"
+              target="_blank"
+              rel="noreferrer"
+            >申请 DeepSeek API Key</a>
+          </div>
+
+          <p class="api-key-message" id="apiKeyMessage" role="alert"></p>
+
+          <footer class="api-modal__actions">
+            <button class="modal-secondary-button" id="apiKeyCancel" type="button">
+              稍后配置
+            </button>
+            <button class="modal-save-button" id="apiKeySave" type="submit">
+              保存到本机
+            </button>
+          </footer>
+        </form>
+      </section>
+    </div>
 
     <script src="app.js"></script>
   </body>

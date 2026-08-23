@@ -139,6 +139,31 @@ button {
   box-shadow: 0 0 0 4px rgba(96, 218, 135, 0.1);
 }
 
+.topbar__actions {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+}
+
+.api-settings-button {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  padding: 7px 12px;
+  border: 1px solid rgba(221, 255, 98, 0.2);
+  border-radius: 999px;
+  color: var(--accent);
+  background: rgba(221, 255, 98, 0.06);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.api-settings-button:hover {
+  border-color: rgba(221, 255, 98, 0.45);
+  background: rgba(221, 255, 98, 0.11);
+}
+
 .hero {
   padding: 66px 0 42px;
   text-align: center;
@@ -649,6 +674,189 @@ button {
   margin: 0;
 }
 
+body.modal-open {
+  overflow: hidden;
+}
+
+.modal-backdrop {
+  position: fixed;
+  z-index: 30;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(2, 4, 8, 0.78);
+  backdrop-filter: blur(12px);
+}
+
+.modal-backdrop[hidden] {
+  display: none;
+}
+
+.api-modal {
+  width: min(600px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 22px;
+  background: linear-gradient(145deg, #171b24, #0d1016 70%);
+  box-shadow: 0 30px 100px rgba(0, 0, 0, 0.65);
+}
+
+.api-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.api-modal__header h2 {
+  margin: 8px 0 0;
+  font-size: 25px;
+  letter-spacing: -0.03em;
+}
+
+.modal-close-button {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  font-size: 25px;
+  line-height: 1;
+}
+
+.api-modal__description {
+  margin: 18px 0 22px;
+  color: #a4a9b3;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.api-modal__description code {
+  color: var(--accent);
+}
+
+.api-key-field {
+  padding: 17px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.api-key-field + .api-key-field {
+  margin-top: 12px;
+}
+
+.api-key-field__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.api-key-field__heading label {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.api-key-field__heading span {
+  color: #777d88;
+  font-size: 11px;
+}
+
+.api-key-field__heading span.is-ready {
+  color: #60da87;
+}
+
+.secret-input {
+  display: flex;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: #090c11;
+}
+
+.secret-input:focus-within {
+  border-color: rgba(221, 255, 98, 0.55);
+  box-shadow: 0 0 0 3px rgba(221, 255, 98, 0.08);
+}
+
+.secret-input input {
+  min-width: 0;
+  height: 44px;
+  flex: 1;
+  padding: 0 13px;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  background: transparent;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
+}
+
+.secret-input button {
+  width: 62px;
+  color: var(--accent);
+  background: rgba(221, 255, 98, 0.06);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.api-key-field > a {
+  display: inline-block;
+  margin-top: 9px;
+  color: #8993a4;
+  font-size: 11px;
+  text-decoration-color: rgba(137, 147, 164, 0.45);
+  text-underline-offset: 3px;
+}
+
+.api-key-message {
+  min-height: 20px;
+  margin: 12px 2px 0;
+  color: #ff7770;
+  font-size: 12px;
+}
+
+.api-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  margin-top: 8px;
+}
+
+.modal-secondary-button,
+.modal-save-button {
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.modal-secondary-button {
+  border: 1px solid var(--line);
+  color: #a7acb5;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.modal-save-button {
+  color: #10130b;
+  background: var(--accent);
+}
+
+.modal-save-button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
 @media (max-width: 760px) {
   .app-shell {
     width: min(100% - 24px, 600px);
@@ -705,6 +913,20 @@ button {
 
   .status-chip {
     padding: 7px 9px;
+  }
+
+  .topbar__actions {
+    gap: 6px;
+  }
+
+  .api-settings-button {
+    padding: 7px 9px;
+  }
+
+  .api-modal {
+    max-height: calc(100vh - 24px);
+    padding: 20px;
+    border-radius: 17px;
   }
 
   .hero h1 {

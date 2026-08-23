@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import re
+import socket
 import threading
 import time
 import uuid
@@ -23,13 +24,18 @@ from debate_agent import (
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
+ENV_PATH = PROJECT_DIR / ".env"
+CONFIG_LOCK = threading.RLock()
+PROVIDER_KEY_NAMES = {
+    "kimi": "MOONSHOT_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
+}
 
 
 def load_env_file() -> None:
-    env_path = PROJECT_DIR / ".env"
-    if not env_path.exists():
+    if not ENV_PATH.exists():
         return
-    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+    for raw_line in ENV_PATH.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -38,6 +44,76 @@ def load_env_file() -> None:
         value = value.strip().strip('"').strip("'")
         if key:
             os.environ.setdefault(key, value)
+
+
+def save_api_keys(keys: dict[str, object]) -> None:
+    values: dict[str, str] = {}
+    for provider, raw_value in keys.items():
+        key_name = PROVIDER_KEY_NAMES.get(provider)
+        if key_name is None:
+            raise ValueError(f"不支持的模型服务：{provider}")
+        if not isinstance(raw_value, str):
+            raise ValueError("API 密钥必须是字符串")
+        value = raw_value.strip()
+        if not value:
+            continue
+        if len(value) > 4096 or "\n" in value or "\r" in value or "\x00" in value:
+            raise ValueError("API 密钥格式无效")
+        values[key_name] = value
+
+    if not values:
+        raise ValueError("请至少输入一个 API 密钥")
+
+    with CONFIG_LOCK:
+        lines = (
+            ENV_PATH.read_text(encoding="utf-8").splitlines()
+            if ENV_PATH.exists()
+            else []
+        )
+        updated_keys: set[str] = set()
+        updated_lines: list[str] = []
+        for line in lines:
+            match = re.match(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=", line)
+            key = match.group(1) if match else None
+            if key in values:
+                updated_lines.append(f"{key}={values[key]}")
+                updated_keys.add(key)
+            else:
+                updated_lines.append(line)
+
+        missing_keys = [key for key in values if key not in updated_keys]
+        if missing_keys and updated_lines and updated_lines[-1]:
+            updated_lines.append("")
+        updated_lines.extend(f"{key}={values[key]}" for key in missing_keys)
+
+        temporary_path = ENV_PATH.with_name(
+            f".env.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex}.tmp"
+        )
+        try:
+            temporary_path.write_text(
+                "\n".join(updated_lines) + "\n",
+                encoding="utf-8",
+            )
+            os.replace(temporary_path, ENV_PATH)
+            if os.name != "nt":
+                ENV_PATH.chmod(0o600)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+
+        for key, value in values.items():
+            os.environ[key] = value
+
+
+def public_configuration() -> dict:
+    return {
+        "providers": {
+            provider: {
+                "ready": provider_is_ready(provider),
+                "model": default_model(provider),
+            }
+            for provider in ("kimi", "deepseek")
+        }
+    }
 
 
 load_env_file()
@@ -333,6 +409,21 @@ def stop_all_jobs() -> None:
         stop_event.set()
 
 
+class LocalThreadingHTTPServer(ThreadingHTTPServer):
+    """A loopback server that cannot share its port with another local copy."""
+
+    allow_reuse_address = False
+
+    def server_bind(self) -> None:
+        if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(
+                socket.SOL_SOCKET,
+                socket.SO_EXCLUSIVEADDRUSE,
+                1,
+            )
+        super().server_bind()
+
+
 class DebateRequestHandler(SimpleHTTPRequestHandler):
     server_version = "AIDebateServer/1.0"
 
@@ -383,18 +474,7 @@ class DebateRequestHandler(SimpleHTTPRequestHandler):
             return
 
         if parts == ["api", "config"]:
-            self.send_json(
-                HTTPStatus.OK,
-                {
-                    "providers": {
-                        provider: {
-                            "ready": provider_is_ready(provider),
-                            "model": default_model(provider),
-                        }
-                        for provider in ("kimi", "deepseek")
-                    }
-                },
-            )
+            self.send_json(HTTPStatus.OK, public_configuration())
             return
 
         if parts == ["api", "debates"]:
@@ -444,6 +524,22 @@ class DebateRequestHandler(SimpleHTTPRequestHandler):
             payload = self.read_json_body()
         except ValueError as error:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
+
+        if parts == ["api", "config", "keys"]:
+            keys = payload.get("keys")
+            if not isinstance(keys, dict):
+                self.send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": "密钥配置必须是 JSON 对象"},
+                )
+                return
+            try:
+                save_api_keys(keys)
+            except (OSError, ValueError) as error:
+                self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            self.send_json(HTTPStatus.OK, public_configuration())
             return
 
         if parts == ["api", "debates"]:
@@ -546,7 +642,7 @@ class DebateRequestHandler(SimpleHTTPRequestHandler):
             )
             self.send_json(
                 HTTPStatus.BAD_REQUEST,
-                {"error": f"请先在 .env 中配置 {names} API 密钥"},
+                {"error": f"请先在页面的 API 密钥设置中配置 {names}"},
             )
             return
 
@@ -645,10 +741,14 @@ def main() -> None:
 
     server = None
     try:
-        server = ThreadingHTTPServer(address, DebateRequestHandler)
-    except Exception:
+        server = LocalThreadingHTTPServer(address, DebateRequestHandler)
+    except OSError:
         release_instance_lock()
-        raise
+        print(f"无法启动：{url} 已被其他程序或另一份 AI 辩论场占用。")
+        print("请关闭旧窗口中的辩论场后重试。")
+        if args.open:
+            webbrowser.open(url)
+        return
 
     print(f"AI 辩论场已启动：{url}")
     print(f"辩论记录保存位置：{DATA_DIR}")
