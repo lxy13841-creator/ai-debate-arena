@@ -62,10 +62,86 @@
             placeholder="例如：人工智能的发展对人类社会利大于弊"
           />
           <button class="primary-button" id="startButton" type="button">
-            <span>开始辩论</span>
+            <span>生成双方观点</span>
             <span class="button-arrow" aria-hidden="true">→</span>
           </button>
         </div>
+        <div class="summarizer-config" id="viewpointConfig">
+          <div class="summarizer-config__copy">
+            <span class="summarizer-config__icon viewpoint-agent-icon" aria-hidden="true">◇</span>
+            <div>
+              <p>立场生成 Agent</p>
+              <span>先将自然语言凝练为正反观点，双方合计不超过 50 字</span>
+            </div>
+          </div>
+          <div class="summarizer-config__controls">
+            <div class="model-picker model-picker--summarizer">
+              <select id="viewpointModel" aria-label="选择立场生成 Agent 模型">
+                <optgroup label="Kimi">
+                  <option value="kimi-k2.6" data-provider="kimi">Kimi K2.6</option>
+                  <option value="kimi-k3" data-provider="kimi">Kimi K3</option>
+                </optgroup>
+                <optgroup label="DeepSeek">
+                  <option value="deepseek-v4-pro" data-provider="deepseek">DeepSeek V4 Pro</option>
+                  <option value="deepseek-v4-flash" data-provider="deepseek" selected>DeepSeek V4 Flash</option>
+                </optgroup>
+              </select>
+            </div>
+            <span class="standby-badge" id="viewpointState" aria-live="polite">等待中</span>
+          </div>
+        </div>
+        <div class="summarizer-config" id="summaryConfig">
+          <div class="summarizer-config__copy">
+            <span class="summarizer-config__icon" aria-hidden="true">◎</span>
+            <div>
+              <p>交锋图体系 Agent</p>
+              <span>维护双方逻辑体系；偏离核心论点时拒绝入图，不参与辩论或裁决</span>
+            </div>
+          </div>
+          <div class="summarizer-config__controls">
+            <div class="model-picker model-picker--summarizer">
+              <select id="summaryModel" aria-label="选择总结 Agent 模型">
+                <optgroup label="Kimi">
+                  <option value="kimi-k2.6" data-provider="kimi">Kimi K2.6</option>
+                  <option value="kimi-k3" data-provider="kimi">Kimi K3</option>
+                </optgroup>
+                <optgroup label="DeepSeek">
+                  <option value="deepseek-v4-pro" data-provider="deepseek">DeepSeek V4 Pro</option>
+                  <option value="deepseek-v4-flash" data-provider="deepseek" selected>DeepSeek V4 Flash</option>
+                </optgroup>
+              </select>
+            </div>
+            <span class="standby-badge" id="summaryState" aria-live="polite">等待中</span>
+          </div>
+        </div>
+        <section class="viewpoint-review" id="viewpointReview" aria-labelledby="viewpointReviewTitle" hidden>
+          <header class="viewpoint-review__header">
+            <div>
+              <p class="section-kicker">二次确认</p>
+              <h2 id="viewpointReviewTitle">确认发送给双方的观点</h2>
+            </div>
+            <span class="viewpoint-review__count"><strong id="viewpointTotalCount">0</strong>/50 字</span>
+          </header>
+          <p class="viewpoint-review__description">
+            你可以直接修改。确认后，这两条观点会同时发送给正反双方，并依次进入立论阶段。
+          </p>
+          <div class="viewpoint-review__fields">
+            <label class="viewpoint-field viewpoint-field--affirmative" for="affirmativeViewpoint">
+              <span><i>正</i>正方观点</span>
+              <textarea id="affirmativeViewpoint" rows="2" maxlength="50"></textarea>
+            </label>
+            <label class="viewpoint-field viewpoint-field--negative" for="negativeViewpoint">
+              <span><i>反</i>反方观点</span>
+              <textarea id="negativeViewpoint" rows="2" maxlength="50"></textarea>
+            </label>
+          </div>
+          <p class="viewpoint-review__message" id="viewpointReviewMessage" role="alert"></p>
+          <footer class="viewpoint-review__actions">
+            <button class="review-button review-button--secondary" id="cancelViewpointsButton" type="button">返回修改辩题</button>
+            <button class="review-button review-button--secondary" id="regenerateViewpointsButton" type="button">重新生成</button>
+            <button class="review-button review-button--confirm" id="confirmViewpointsButton" type="button">确认并开始立论</button>
+          </footer>
+        </section>
         <p class="form-message" id="formMessage" role="alert"></p>
       </section>
 
@@ -91,6 +167,10 @@
             </div>
             <span class="standby-badge" id="affirmativeState">等待中</span>
           </header>
+          <div class="confirmed-viewpoint confirmed-viewpoint--affirmative" id="affirmativeConfirmedViewpoint" hidden>
+            <span>已确认观点</span>
+            <p></p>
+          </div>
           <div class="speech-box" id="affirmativeSpeech" aria-live="polite">
             <span class="quote-mark" aria-hidden="true">“</span>
             <p>辩论开始后，正方的发言将显示在这里。</p>
@@ -128,6 +208,10 @@
             </div>
             <span class="standby-badge" id="negativeState">等待中</span>
           </header>
+          <div class="confirmed-viewpoint confirmed-viewpoint--negative" id="negativeConfirmedViewpoint" hidden>
+            <span>已确认观点</span>
+            <p></p>
+          </div>
           <div class="speech-box" id="negativeSpeech" aria-live="polite">
             <span class="quote-mark" aria-hidden="true">“</span>
             <p>辩论开始后，反方的发言将显示在这里。</p>
@@ -156,6 +240,18 @@
         </div>
 
         <div class="debate-actions">
+          <button
+            class="graph-button"
+            id="graphButton"
+            type="button"
+            title="在新标签页读取当前已保存的交锋图"
+            disabled
+          >
+            <span class="graph-button__icon" aria-hidden="true">
+              <i></i><i></i><i></i>
+            </span>
+            查看交锋图
+          </button>
           <button class="pause-button" id="pauseButton" type="button" disabled>
             <span class="pause-button__icon" aria-hidden="true"></span>
             <span id="pauseButtonLabel">暂停辩论</span>

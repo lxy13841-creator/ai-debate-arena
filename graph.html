@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="AI 辩论场中由总结 Agent 客观提取的论点与交锋关系"
+    />
+    <title>交锋图 · AI 辩论场</title>
+    <link rel="stylesheet" href="graph.css" />
+  </head>
+  <body>
+    <div class="ambient ambient--affirmative" aria-hidden="true"></div>
+    <div class="ambient ambient--negative" aria-hidden="true"></div>
+
+    <header class="graph-topbar">
+      <a class="brand" href="/" aria-label="返回 AI 辩论场">
+        <span class="brand__mark" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </span>
+        <span>AI 辩论场</span>
+      </a>
+      <span class="topbar-divider" aria-hidden="true"></span>
+      <span class="page-label">交锋图</span>
+      <div class="snapshot-badge">
+        <span class="snapshot-badge__dot" aria-hidden="true"></span>
+        手动快照
+      </div>
+    </header>
+
+    <main class="graph-shell">
+      <section class="graph-intro" aria-labelledby="graphTitle">
+        <div class="graph-intro__copy">
+          <p class="eyebrow">ARGUMENT MAP</p>
+          <h1 id="graphTitle">正在读取交锋图…</h1>
+          <p id="snapshotDescription">
+            本页只读取打开时已保存的数据，不会自动刷新。
+          </p>
+        </div>
+        <dl class="snapshot-stats" aria-label="交锋图统计">
+          <div>
+            <dt>观点节点</dt>
+            <dd><strong id="nodeStat">—</strong><span>个</span></dd>
+          </div>
+          <div>
+            <dt>交锋关系</dt>
+            <dd><strong id="edgeStat">—</strong><span>条</span></dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="graph-context" aria-label="快照信息">
+        <div class="context-item">
+          <span>总结模型</span>
+          <strong id="summaryModel">—</strong>
+        </div>
+        <div class="context-item">
+          <span>记录状态</span>
+          <strong id="debateStatus">—</strong>
+        </div>
+        <div class="context-item context-item--wide">
+          <span>快照时间</span>
+          <strong id="snapshotTime">—</strong>
+        </div>
+        <p class="manual-note">
+          想查看新一轮结果，请回到辩论页再次点击“查看交锋图”。
+        </p>
+      </section>
+
+      <section class="graph-toolbar" aria-label="图例">
+        <div class="side-legend">
+          <span><i class="side-dot side-dot--affirmative"></i>正方观点</span>
+          <span><i class="side-dot side-dot--negative"></i>反方观点</span>
+        </div>
+        <div class="relation-legend">
+          <span class="relation-key relation-key--supports">支持</span>
+          <span class="relation-key relation-key--rebuts">反驳</span>
+        </div>
+      </section>
+
+      <div class="workspace" id="workspace" hidden>
+        <section class="graph-panel" aria-label="论点交锋图">
+          <div class="graph-scroll" id="graphScroll">
+            <div class="graph-surface" id="graphSurface">
+              <svg class="edge-layer" id="edgeLayer" aria-label="论点关系连线">
+                <defs>
+                  <marker id="arrow-supports" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 z"></path>
+                  </marker>
+                  <marker id="arrow-rebuts" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 z"></path>
+                  </marker>
+                  <marker id="arrow-responds-to" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 z"></path>
+                  </marker>
+                  <marker id="arrow-extends" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 z"></path>
+                  </marker>
+                </defs>
+              </svg>
+              <div class="rounds-layer" id="roundsLayer"></div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="detail-panel" aria-live="polite" aria-label="节点详情">
+          <div id="detailContent" class="detail-placeholder">
+            <span class="detail-placeholder__icon" aria-hidden="true">⌁</span>
+            <h2>查看论据脉络</h2>
+            <p>选择一个观点节点，查看总结 Agent 引用的原句及其关联论点。</p>
+          </div>
+        </aside>
+      </div>
+
+      <section class="state-panel" id="statePanel" aria-live="polite">
+        <div class="state-panel__spinner" aria-hidden="true"></div>
+        <h2 id="stateTitle">正在载入数据</h2>
+        <p id="stateMessage">正在读取这场辩论已保存的交锋图。</p>
+      </section>
+    </main>
+
+    <script src="graph.js"></script>
+  </body>
+</html>

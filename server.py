@@ -16,9 +16,13 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from debate_agent import (
+    DebateAgentError,
     DebateRunner,
     PROVIDER_MODELS,
     SpeechResult,
+    SummaryAgent,
+    SummaryResult,
+    ViewpointAgent,
     default_model,
     provider_is_ready,
 )
@@ -258,13 +262,14 @@ def write_record(record: dict) -> None:
             temporary_path.unlink(missing_ok=True)
 
 
-def mark_turn(record_id: str, round_number: int, side: str) -> None:
+def mark_turn(record_id: str, round_number: int, side: str, phase: str) -> None:
     with WRITE_LOCK:
         record = read_record(record_id)
         if record.get("status") != "running":
             return
         record["currentRound"] = round_number
         record["currentSpeaker"] = side
+        record["phase"] = phase
         record["updatedAt"] = utc_now()
         write_record(record)
 
@@ -274,6 +279,7 @@ def save_generated_speech(
     round_number: int,
     side: str,
     result: SpeechResult,
+    phase: str,
 ) -> None:
     with WRITE_LOCK:
         record = read_record(record_id)
@@ -286,6 +292,7 @@ def save_generated_speech(
             "sequence": len(record["speeches"]) + 1,
             "round": round_number,
             "side": side,
+            "phase": phase,
             "provider": seat["provider"],
             "model": seat["model"],
             "content": result.content,
@@ -293,6 +300,156 @@ def save_generated_speech(
             "createdAt": created_at,
         }
         record["speeches"].append(speech)
+        record["currentRound"] = round_number
+        record["updatedAt"] = created_at
+        write_record(record)
+
+
+def advance_debate_phase(record_id: str, phase: str, round_number: int) -> None:
+    with WRITE_LOCK:
+        record = read_record(record_id)
+        if record.get("status") != "running":
+            return
+        record["phase"] = phase
+        record["currentRound"] = round_number
+        record["currentSpeaker"] = None
+        record["updatedAt"] = utc_now()
+        write_record(record)
+
+
+def graph_resource_state(nodes: list[dict]) -> dict:
+    resources = {}
+    for field_name, kind in (
+        ("supportEvidence", "support_evidence"),
+        ("rebuttalEvidence", "rebuttal_evidence"),
+    ):
+        limit = SummaryAgent.EVIDENCE_LIMITS[kind]
+        used = sum(
+            isinstance(node, dict) and node.get("kind") == kind
+            for node in nodes
+        )
+        resources[field_name] = {
+            "used": used,
+            "limit": limit,
+            "remaining": max(0, limit - used),
+        }
+    return resources
+
+
+def save_graph_update(
+    record_id: str,
+    round_number: int,
+    result: SummaryResult,
+) -> None:
+    with WRITE_LOCK:
+        record = read_record(record_id)
+        if record.get("status") != "running":
+            return
+
+        graph = record.setdefault(
+            "argumentGraph",
+            {"nodes": [], "edges": [], "updatedThroughRound": 0},
+        )
+        graph.setdefault("nodes", [])
+        graph.setdefault("edges", [])
+        created_at = utc_now()
+        deleted_node_ids = set(result.deleted_node_ids)
+        deleted_edge_ids = set(result.deleted_edge_ids)
+        if deleted_node_ids:
+            graph["nodes"] = [
+                node
+                for node in graph["nodes"]
+                if str(node.get("id")) not in deleted_node_ids
+            ]
+            # A removed node cannot leave dangling relations behind.
+            graph["edges"] = [
+                edge
+                for edge in graph["edges"]
+                if str(edge.get("from")) not in deleted_node_ids
+                and str(edge.get("to")) not in deleted_node_ids
+            ]
+        if deleted_edge_ids:
+            graph["edges"] = [
+                edge
+                for edge in graph["edges"]
+                if str(edge.get("id")) not in deleted_edge_ids
+            ]
+        local_to_persistent: dict[str, str] = {}
+        new_node_ids: list[str] = []
+        new_edge_ids: list[str] = []
+
+        for extracted_node in result.nodes:
+            node_id = f"node_{uuid.uuid4().hex[:12]}"
+            local_to_persistent[extracted_node["key"]] = node_id
+            node = {
+                "id": node_id,
+                "round": round_number,
+                "side": extracted_node["side"],
+                "kind": extracted_node["kind"],
+                "text": extracted_node["text"],
+                "sourceSpeechId": extracted_node["sourceSpeechId"],
+                "sourceQuote": extracted_node["sourceQuote"],
+                "createdAt": created_at,
+            }
+            graph["nodes"].append(node)
+            new_node_ids.append(node_id)
+
+        valid_node_ids = {
+            str(node.get("id"))
+            for node in graph["nodes"]
+            if isinstance(node, dict) and node.get("id")
+        }
+        existing_edge_keys = {
+            (edge.get("from"), edge.get("to"), edge.get("type"))
+            for edge in graph["edges"]
+            if isinstance(edge, dict)
+        }
+        for extracted_edge in result.edges:
+            from_id = local_to_persistent.get(
+                extracted_edge["from"], extracted_edge["from"]
+            )
+            to_id = local_to_persistent.get(extracted_edge["to"], extracted_edge["to"])
+            edge_key = (from_id, to_id, extracted_edge["type"])
+            if (
+                from_id not in valid_node_ids
+                or to_id not in valid_node_ids
+                or edge_key in existing_edge_keys
+            ):
+                continue
+            edge_id = f"edge_{uuid.uuid4().hex[:12]}"
+            graph["edges"].append(
+                {
+                    "id": edge_id,
+                    "round": round_number,
+                    "from": from_id,
+                    "to": to_id,
+                    "type": extracted_edge["type"],
+                    "createdAt": created_at,
+                }
+            )
+            existing_edge_keys.add(edge_key)
+            new_edge_ids.append(edge_id)
+
+        graph["updatedThroughRound"] = round_number
+        graph["resources"] = graph_resource_state(graph["nodes"])
+        summary_seat = record.get("summarizer") or record["negative"]
+        record.setdefault("roundSummaries", []).append(
+            {
+                "id": f"summary_{uuid.uuid4().hex[:12]}",
+                "round": round_number,
+                "provider": summary_seat["provider"],
+                "model": summary_seat["model"],
+                "status": result.status,
+                "decision": result.decision,
+                "reason": result.reason,
+                "resources": graph["resources"],
+                "nodeIds": new_node_ids,
+                "edgeIds": new_edge_ids,
+                "deletedNodeIds": sorted(deleted_node_ids),
+                "deletedEdgeIds": sorted(deleted_edge_ids),
+                "createdAt": created_at,
+            }
+        )
         record["currentRound"] = round_number
         record["updatedAt"] = created_at
         write_record(record)
@@ -356,6 +513,8 @@ def start_debate_job(record_id: str) -> None:
         load_record=read_record,
         mark_turn=mark_turn,
         save_speech=save_generated_speech,
+        save_summary=save_graph_update,
+        advance_phase=advance_debate_phase,
         mark_paused=mark_debate_paused,
         mark_error=mark_debate_error,
         mark_stopped=mark_debate_stopped,
@@ -496,6 +655,7 @@ class DebateRequestHandler(SimpleHTTPRequestHandler):
                         "status": record.get("status"),
                         "affirmative": record.get("affirmative"),
                         "negative": record.get("negative"),
+                        "summarizer": record.get("summarizer"),
                         "createdAt": record.get("createdAt"),
                         "updatedAt": record.get("updatedAt"),
                     }
@@ -545,6 +705,10 @@ class DebateRequestHandler(SimpleHTTPRequestHandler):
 
         if parts == ["api", "debates"]:
             self.create_debate(payload)
+            return
+
+        if parts == ["api", "viewpoints"]:
+            self.generate_viewpoints(payload)
             return
 
         if (
@@ -615,10 +779,61 @@ class DebateRequestHandler(SimpleHTTPRequestHandler):
 
         self.send_json(HTTPStatus.OK, {"debate": record})
 
+    def generate_viewpoints(self, payload: dict) -> None:
+        topic = str(payload.get("topic", "")).strip()
+        agent_config = payload.get("agent")
+        if not topic or len(topic) > 120:
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "输入长度必须为 1 至 120 字"})
+            return
+        if not self.valid_side(agent_config):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "观点 Agent 信息无效"})
+            return
+
+        normalized_agent = self.normalize_side(agent_config)
+        if not provider_is_ready(normalized_agent["provider"]):
+            provider_name = (
+                "Kimi" if normalized_agent["provider"] == "kimi" else "DeepSeek"
+            )
+            self.send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": f"请先在页面的 API 密钥设置中配置 {provider_name}"},
+            )
+            return
+        try:
+            max_tokens = int(os.environ.get("AI_DEBATE_VIEWPOINT_MAX_TOKENS", "400"))
+            result = ViewpointAgent(
+                provider=normalized_agent["provider"],
+                model=normalized_agent["model"],
+            ).generate(topic=topic, max_tokens=max_tokens)
+        except DebateAgentError as error:
+            self.send_json(HTTPStatus.BAD_GATEWAY, {"error": str(error)})
+            return
+        except Exception as error:
+            self.send_json(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                {"error": f"观点生成异常：{error}"},
+            )
+            return
+
+        self.send_json(
+            HTTPStatus.OK,
+            {
+                "topic": topic,
+                "agent": normalized_agent,
+                "viewpoints": {
+                    "affirmative": result.affirmative,
+                    "negative": result.negative,
+                },
+            },
+        )
+
     def create_debate(self, payload: dict) -> None:
         topic = str(payload.get("topic", "")).strip()
         affirmative = payload.get("affirmative")
         negative = payload.get("negative")
+        summarizer = payload.get("summarizer")
+        viewpoint_agent = payload.get("viewpointAgent")
+        viewpoints = payload.get("viewpoints")
 
         if not topic or len(topic) > 120:
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "辩题长度必须为 1 至 120 字"})
@@ -626,13 +841,35 @@ class DebateRequestHandler(SimpleHTTPRequestHandler):
         if not self.valid_side(affirmative) or not self.valid_side(negative):
             self.send_json(HTTPStatus.BAD_REQUEST, {"error": "辩手信息无效"})
             return
+        if summarizer is not None and not self.valid_side(summarizer):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "总结 Agent 信息无效"})
+            return
+        if not self.valid_side(viewpoint_agent):
+            self.send_json(HTTPStatus.BAD_REQUEST, {"error": "观点 Agent 信息无效"})
+            return
+        if not self.valid_viewpoints(viewpoints):
+            self.send_json(
+                HTTPStatus.BAD_REQUEST,
+                {"error": "请确认正反方观点，且双方观点合计不得超过 50 字"},
+            )
+            return
 
         affirmative = self.normalize_side(affirmative)
         negative = self.normalize_side(negative)
+        summarizer = (
+            self.normalize_side(summarizer)
+            if summarizer is not None
+            else dict(negative)
+        )
+        viewpoint_agent = self.normalize_side(viewpoint_agent)
+        viewpoints = {
+            "affirmative": str(viewpoints["affirmative"]).strip(),
+            "negative": str(viewpoints["negative"]).strip(),
+        }
         missing_providers = sorted(
             {
                 side["provider"]
-                for side in (affirmative, negative)
+                for side in (affirmative, negative, summarizer, viewpoint_agent)
                 if not provider_is_ready(side["provider"])
             }
         )
@@ -649,12 +886,19 @@ class DebateRequestHandler(SimpleHTTPRequestHandler):
 
         created_at = utc_now()
         record = {
-            "schemaVersion": 1,
+            "schemaVersion": 3,
             "id": create_record_id(),
             "topic": topic,
             "status": "running",
             "affirmative": affirmative,
             "negative": negative,
+            "summarizer": summarizer,
+            "viewpointAgent": viewpoint_agent,
+            "viewpoints": {
+                **viewpoints,
+                "confirmedAt": created_at,
+            },
+            "phase": "opening",
             "currentRound": 1,
             "currentSpeaker": None,
             "pauseRequested": False,
@@ -662,6 +906,13 @@ class DebateRequestHandler(SimpleHTTPRequestHandler):
             "updatedAt": created_at,
             "finishedAt": None,
             "speeches": [],
+            "roundSummaries": [],
+            "argumentGraph": {
+                "nodes": [],
+                "edges": [],
+                "updatedThroughRound": 0,
+                "resources": graph_resource_state([]),
+            },
         }
         record["storageFolder"] = safe_topic_folder_name(topic, record["id"])
 
@@ -686,6 +937,7 @@ class DebateRequestHandler(SimpleHTTPRequestHandler):
                     "sequence": len(record["speeches"]) + 1,
                     "round": int(payload.get("round", record["currentRound"])),
                     "side": side,
+                    "phase": str(payload.get("phase", record.get("phase", "debate"))),
                     "provider": seat["provider"],
                     "model": seat["model"],
                     "content": content,
@@ -719,6 +971,18 @@ class DebateRequestHandler(SimpleHTTPRequestHandler):
             isinstance(model, str)
             and model.strip() in PROVIDER_MODELS[provider]
         )
+
+    @staticmethod
+    def valid_viewpoints(viewpoints: object) -> bool:
+        if not isinstance(viewpoints, dict):
+            return False
+        affirmative = viewpoints.get("affirmative")
+        negative = viewpoints.get("negative")
+        if not isinstance(affirmative, str) or not isinstance(negative, str):
+            return False
+        affirmative = affirmative.strip()
+        negative = negative.strip()
+        return bool(affirmative and negative) and len(affirmative) + len(negative) <= 50
 
     @staticmethod
     def normalize_side(side: dict) -> dict:

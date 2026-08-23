@@ -1,6 +1,7 @@
 const topicInput = document.querySelector("#topicInput");
 const topicCount = document.querySelector("#topicCount");
 const startButton = document.querySelector("#startButton");
+const graphButton = document.querySelector("#graphButton");
 const pauseButton = document.querySelector("#pauseButton");
 const pauseButtonLabel = document.querySelector("#pauseButtonLabel");
 const stopButton = document.querySelector("#stopButton");
@@ -15,8 +16,24 @@ const affirmativeState = document.querySelector("#affirmativeState");
 const affirmativeSpeech = document.querySelector("#affirmativeSpeech p");
 const negativeState = document.querySelector("#negativeState");
 const negativeSpeech = document.querySelector("#negativeSpeech p");
+const affirmativeConfirmedViewpoint = document.querySelector("#affirmativeConfirmedViewpoint");
+const negativeConfirmedViewpoint = document.querySelector("#negativeConfirmedViewpoint");
 const affirmativeModel = document.querySelector("#affirmativeModel");
 const negativeModel = document.querySelector("#negativeModel");
+const viewpointModel = document.querySelector("#viewpointModel");
+const summaryModel = document.querySelector("#summaryModel");
+const viewpointConfig = document.querySelector("#viewpointConfig");
+const viewpointState = document.querySelector("#viewpointState");
+const summaryConfig = document.querySelector("#summaryConfig");
+const summaryState = document.querySelector("#summaryState");
+const viewpointReview = document.querySelector("#viewpointReview");
+const affirmativeViewpoint = document.querySelector("#affirmativeViewpoint");
+const negativeViewpoint = document.querySelector("#negativeViewpoint");
+const viewpointTotalCount = document.querySelector("#viewpointTotalCount");
+const viewpointReviewMessage = document.querySelector("#viewpointReviewMessage");
+const cancelViewpointsButton = document.querySelector("#cancelViewpointsButton");
+const regenerateViewpointsButton = document.querySelector("#regenerateViewpointsButton");
+const confirmViewpointsButton = document.querySelector("#confirmViewpointsButton");
 const affirmativeModelDot = document.querySelector("#affirmativeModelDot");
 const negativeModelDot = document.querySelector("#negativeModelDot");
 const affirmativeApiLabel = document.querySelector("#affirmativeApiLabel");
@@ -36,6 +53,10 @@ const deepseekKeyStatus = document.querySelector("#deepseekKeyStatus");
 let isRunning = false;
 let isPaused = false;
 let activeDebateId = null;
+let latestDebateId = null;
+let pendingTopic = null;
+let isReviewingViewpoints = false;
+let isGeneratingViewpoints = false;
 let pollTimer = null;
 let providerConfiguration = null;
 let hasOfferedInitialConfiguration = false;
@@ -285,6 +306,8 @@ function selectedProvidersAreReady() {
   const selectedProviders = new Set([
     selectedModel(affirmativeModel).provider,
     selectedModel(negativeModel).provider,
+    selectedModel(viewpointModel).provider,
+    selectedModel(summaryModel).provider,
   ]);
   const missing = [...selectedProviders].filter(
     (provider) => !providerConfiguration?.[provider]?.ready,
@@ -354,16 +377,24 @@ function updateSeatLabels() {
 function updateCharacterCount() {
   topicCount.textContent = topicInput.value.length;
   formMessage.textContent = "";
+  if (!isReviewingViewpoints && !isGeneratingViewpoints && !isRunning) {
+    viewpointState.textContent = "等待中";
+  }
+}
+
+function syncSetupControls() {
+  const locked = isRunning || isReviewingViewpoints || isGeneratingViewpoints;
+  topicInput.disabled = locked;
+  [affirmativeModel, negativeModel, viewpointModel, summaryModel].forEach((select) => {
+    select.disabled = locked;
+    modelPickerControls.get(select)?.syncDisabled();
+  });
+  startButton.disabled = locked;
 }
 
 function setRunningControls(running) {
   isRunning = running;
-  topicInput.disabled = running;
-  [affirmativeModel, negativeModel].forEach((select) => {
-    select.disabled = running;
-    modelPickerControls.get(select)?.syncDisabled();
-  });
-  startButton.disabled = running;
+  syncSetupControls();
   pauseButton.disabled = !running;
   stopButton.disabled = !running;
   speakerStatus.classList.toggle("is-running", running);
@@ -376,13 +407,19 @@ function setRunningControls(running) {
 function clearActiveSpeaker() {
   affirmativeCard.classList.remove("is-active");
   negativeCard.classList.remove("is-active");
+  viewpointConfig.classList.remove("is-active");
+  summaryConfig.classList.remove("is-active");
   affirmativeState.classList.remove("is-speaking");
   negativeState.classList.remove("is-speaking");
+  viewpointState.classList.remove("is-speaking");
+  summaryState.classList.remove("is-speaking");
 }
 
-async function createDebateRecord(topic) {
+async function createDebateRecord(topic, viewpoints) {
   const affirmative = selectedModel(affirmativeModel);
   const negative = selectedModel(negativeModel);
+  const viewpointAgent = selectedModel(viewpointModel);
+  const summarizer = selectedModel(summaryModel);
   const response = await fetch("/api/debates", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -390,6 +427,9 @@ async function createDebateRecord(topic) {
       topic,
       affirmative: { provider: affirmative.provider, model: affirmative.model },
       negative: { provider: negative.provider, model: negative.model },
+      viewpointAgent: { provider: viewpointAgent.provider, model: viewpointAgent.model },
+      summarizer: { provider: summarizer.provider, model: summarizer.model },
+      viewpoints,
     }),
   });
 
@@ -399,6 +439,21 @@ async function createDebateRecord(topic) {
   }
 
   return response.json();
+}
+
+async function requestViewpoints(topic) {
+  const agent = selectedModel(viewpointModel);
+  const response = await fetch("/api/viewpoints", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      topic,
+      agent: { provider: agent.provider, model: agent.model },
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || "无法生成双方观点");
+  return payload;
 }
 
 async function updateDebateRecord(status) {
@@ -421,25 +476,60 @@ function latestSpeech(speeches, side) {
   return [...speeches].reverse().find((speech) => speech.side === side);
 }
 
+function renderConfirmedViewpoints(viewpoints) {
+  const affirmative = String(viewpoints?.affirmative || "").trim();
+  const negative = String(viewpoints?.negative || "").trim();
+  const hasViewpoints = Boolean(affirmative && negative);
+  affirmativeConfirmedViewpoint.hidden = !hasViewpoints;
+  negativeConfirmedViewpoint.hidden = !hasViewpoints;
+  if (!hasViewpoints) return;
+  affirmativeConfirmedViewpoint.querySelector("p").textContent = affirmative;
+  negativeConfirmedViewpoint.querySelector("p").textContent = negative;
+}
+
 function renderRunningDebate(debate) {
   isPaused = false;
+  const isOpening = debate.phase === "opening";
   const currentSide = debate.currentSpeaker;
   const currentSeat = currentSide ? debate[currentSide] : null;
   const sideName = currentSide === "affirmative" ? "正方" : "反方";
   const affirmativeLatest = latestSpeech(debate.speeches, "affirmative");
   const negativeLatest = latestSpeech(debate.speeches, "negative");
+  renderConfirmedViewpoints(debate.viewpoints);
 
-  roundNumber.textContent = String(debate.currentRound).padStart(2, "0");
+  roundNumber.textContent = isOpening
+    ? "立论"
+    : String(debate.currentRound).padStart(2, "0");
   if (affirmativeLatest) affirmativeSpeech.textContent = affirmativeLatest.content;
   if (negativeLatest) negativeSpeech.textContent = negativeLatest.content;
 
   clearActiveSpeaker();
   setPauseMode("pause");
   pauseButton.disabled = Boolean(debate.pauseRequested);
-  affirmativeState.textContent = affirmativeLatest ? "已发言" : "等待中";
-  negativeState.textContent = negativeLatest ? "已发言" : "等待中";
+  affirmativeState.textContent = affirmativeLatest
+    ? isOpening ? "已立论" : "已发言"
+    : "等待中";
+  negativeState.textContent = negativeLatest
+    ? isOpening ? "已立论" : "已发言"
+    : "等待中";
+  viewpointState.textContent = "已确认";
+  const latestSummary = debate.roundSummaries?.at(-1);
+  summaryState.textContent = !latestSummary
+    ? "等待中"
+    : latestSummary.decision === "refuse" ? "已拒绝入图"
+    : latestSummary.decision === "hold" ? "已审阅，保持原图"
+    : "已更新";
 
-  if (currentSide && currentSeat) {
+  if (currentSide === "summarizer" && currentSeat) {
+    summaryConfig.classList.add("is-active");
+    summaryState.classList.add("is-speaking");
+    summaryState.textContent = "生成中";
+    speakerHint.textContent = debate.pauseRequested
+      ? "总结 Agent 完成交锋图更新后暂停"
+      : isOpening
+        ? `立论阶段 · 总结 Agent ${displayModelName(currentSeat)} 正在整理交锋图`
+        : `第 ${debate.currentRound} 轮 · 总结 Agent ${displayModelName(currentSeat)} 正在整理交锋图`;
+  } else if (currentSide && currentSeat) {
     const card = currentSide === "affirmative" ? affirmativeCard : negativeCard;
     const state = currentSide === "affirmative" ? affirmativeState : negativeState;
     card.classList.add("is-active");
@@ -447,11 +537,13 @@ function renderRunningDebate(debate) {
     state.textContent = "生成中";
     speakerHint.textContent = debate.pauseRequested
       ? `${sideName}完成本次发言后暂停`
-      : `第 ${debate.currentRound} 轮 · ${sideName} ${displayModelName(currentSeat)} 正在发言`;
+      : isOpening
+        ? `立论阶段 · ${sideName} ${displayModelName(currentSeat)} 正在生成立论`
+        : `第 ${debate.currentRound} 轮 · ${sideName} ${displayModelName(currentSeat)} 正在发言`;
   } else {
     speakerHint.textContent = debate.pauseRequested
       ? "正在进入暂停状态"
-      : `第 ${debate.currentRound} 轮即将开始`;
+      : isOpening ? "立论阶段即将开始" : `第 ${debate.currentRound} 轮即将开始`;
   }
 }
 
@@ -462,15 +554,20 @@ function renderPausedDebate(debate) {
   clearActiveSpeaker();
   setPauseMode("resume");
   pauseButton.disabled = false;
-  roundNumber.textContent = String(debate.currentRound).padStart(2, "0");
+  roundNumber.textContent = debate.phase === "opening"
+    ? "立论"
+    : String(debate.currentRound).padStart(2, "0");
 
   const affirmativeLatest = latestSpeech(debate.speeches, "affirmative");
   const negativeLatest = latestSpeech(debate.speeches, "negative");
+  renderConfirmedViewpoints(debate.viewpoints);
   if (affirmativeLatest) affirmativeSpeech.textContent = affirmativeLatest.content;
   if (negativeLatest) negativeSpeech.textContent = negativeLatest.content;
   affirmativeState.textContent = "已暂停";
   negativeState.textContent = "已暂停";
-  speakerHint.textContent = "已暂停，继续后才会调用下一位辩手";
+  viewpointState.textContent = "已确认";
+  summaryState.textContent = "已暂停";
+  speakerHint.textContent = "已暂停，继续后才会调用下一位 Agent";
   setConnectionText("辩论已暂停");
 }
 
@@ -480,6 +577,9 @@ function finishDebate(debate) {
   stopPolling();
   affirmativeState.textContent = "已停止";
   negativeState.textContent = "已停止";
+  viewpointState.textContent = debate.viewpoints ? "已确认" : "等待中";
+  summaryState.textContent = "已停止";
+  renderConfirmedViewpoints(debate.viewpoints);
 
   if (debate.status === "error") {
     speakerHint.textContent = "辩论因模型调用错误而停止";
@@ -489,6 +589,7 @@ function finishDebate(debate) {
     speakerHint.textContent = "辩论已停止，可修改辩题后重新开始";
     setConnectionText("系统就绪");
   }
+  startButton.querySelector("span").textContent = "生成双方观点";
   activeDebateId = null;
 }
 
@@ -529,9 +630,56 @@ function stopPolling() {
   }
 }
 
-async function startDebate() {
-  const topic = topicInput.value.trim();
+function openArgumentGraph() {
+  if (!latestDebateId) return;
 
+  const graphUrl = new URL("/graph.html", window.location.origin);
+  graphUrl.searchParams.set("debate", latestDebateId);
+  graphUrl.searchParams.set("snapshot", Date.now());
+  const graphWindow = window.open(graphUrl.toString(), "ai-debate-argument-graph");
+  if (!graphWindow) {
+    formMessage.textContent = "浏览器阻止了新标签页，请允许本站打开弹窗后重试。";
+    return;
+  }
+  graphWindow.focus();
+}
+
+function currentViewpoints() {
+  return {
+    affirmative: affirmativeViewpoint.value.trim(),
+    negative: negativeViewpoint.value.trim(),
+  };
+}
+
+function updateViewpointCount() {
+  const viewpoints = currentViewpoints();
+  const total = viewpoints.affirmative.length + viewpoints.negative.length;
+  viewpointTotalCount.textContent = total;
+  viewpointTotalCount.parentElement.classList.toggle("is-over-limit", total > 50);
+  if (viewpointReviewMessage.textContent) viewpointReviewMessage.textContent = "";
+  return total;
+}
+
+function setViewpointReviewBusy(busy) {
+  affirmativeViewpoint.disabled = busy;
+  negativeViewpoint.disabled = busy;
+  cancelViewpointsButton.disabled = busy;
+  regenerateViewpointsButton.disabled = busy;
+  confirmViewpointsButton.disabled = busy;
+}
+
+function ensureViewpointProviderIsReady() {
+  const selected = selectedModel(viewpointModel);
+  if (providerConfiguration?.[selected.provider]?.ready) return true;
+  const message = `请先配置 ${providerNames[selected.provider]} API Key。`;
+  formMessage.textContent = message;
+  setConnectionText("等待配置 API 密钥");
+  openApiKeyModal(message);
+  return false;
+}
+
+async function generateViewpoints(topicOverride = null) {
+  const topic = (topicOverride || topicInput.value).trim();
   if (!topic) {
     formMessage.textContent = "请先输入本场辩题。";
     topicInput.focus();
@@ -541,36 +689,120 @@ async function startDebate() {
   if (!providerConfiguration) {
     await checkConfiguration({ openWhenEmpty: false });
   }
+  if (!ensureViewpointProviderIsReady()) return;
+
+  const wasReviewing = isReviewingViewpoints;
+  isReviewingViewpoints = false;
+  isGeneratingViewpoints = true;
+  syncSetupControls();
+  setViewpointReviewBusy(true);
+  viewpointConfig.classList.add("is-active");
+  viewpointState.classList.add("is-speaking");
+  viewpointState.textContent = "生成中";
+  speakerStatus.classList.add("is-running");
+  startButton.querySelector("span").textContent = "正在生成观点";
+  speakerHint.textContent = `立场生成 Agent ${selectedModel(viewpointModel).name} 正在凝练双方观点`;
+  setConnectionText("观点 Agent 工作中");
+  formMessage.textContent = "";
+  viewpointReviewMessage.textContent = "";
+
+  try {
+    const payload = await requestViewpoints(topic);
+    pendingTopic = payload.topic;
+    affirmativeViewpoint.value = payload.viewpoints.affirmative;
+    negativeViewpoint.value = payload.viewpoints.negative;
+    updateViewpointCount();
+    viewpointReview.hidden = false;
+    isReviewingViewpoints = true;
+    viewpointState.textContent = "待确认";
+    speakerHint.textContent = "观点已生成，请二次确认后开始立论";
+    setConnectionText("等待观点确认");
+    window.setTimeout(() => affirmativeViewpoint.focus(), 0);
+  } catch (error) {
+    isReviewingViewpoints = wasReviewing;
+    viewpointState.textContent = "生成失败";
+    speakerHint.textContent = wasReviewing ? "保留上次观点，请修改或重新生成" : "观点生成失败";
+    setConnectionText("观点生成失败");
+    formMessage.textContent = error.message;
+    if (error.message.includes("API 密钥")) openApiKeyModal(error.message);
+  } finally {
+    isGeneratingViewpoints = false;
+    viewpointConfig.classList.remove("is-active");
+    viewpointState.classList.remove("is-speaking");
+    speakerStatus.classList.remove("is-running");
+    startButton.querySelector("span").textContent = "生成双方观点";
+    setViewpointReviewBusy(false);
+    syncSetupControls();
+  }
+}
+
+function cancelViewpointReview() {
+  isReviewingViewpoints = false;
+  pendingTopic = null;
+  viewpointReview.hidden = true;
+  viewpointReviewMessage.textContent = "";
+  viewpointState.textContent = "等待中";
+  speakerHint.textContent = "等待输入辩题";
+  setConnectionText("系统就绪");
+  syncSetupControls();
+  topicInput.focus();
+}
+
+async function confirmViewpoints() {
+  const viewpoints = currentViewpoints();
+  const total = updateViewpointCount();
+  if (!viewpoints.affirmative || !viewpoints.negative) {
+    viewpointReviewMessage.textContent = "正方观点和反方观点都不能为空。";
+    return;
+  }
+  if (total > 50) {
+    viewpointReviewMessage.textContent = "双方观点合计不得超过 50 字。";
+    return;
+  }
+  if (!pendingTopic) {
+    viewpointReviewMessage.textContent = "观点对应的辩题已失效，请返回重新生成。";
+    return;
+  }
   if (!selectedProvidersAreReady()) return;
 
+  setViewpointReviewBusy(true);
   setRunningControls(true);
   pauseButton.disabled = true;
   stopButton.disabled = true;
-  startButton.querySelector("span").textContent = "正在创建";
-  speakerHint.textContent = "正在创建辩论记录…";
-  setConnectionText("正在连接模型");
+  viewpointState.textContent = "确认中";
+  speakerHint.textContent = "正在发送确认观点并创建立论阶段…";
+  setConnectionText("正在创建辩论");
   formMessage.textContent = "";
 
   try {
-    const payload = await createDebateRecord(topic);
+    const payload = await createDebateRecord(pendingTopic, viewpoints);
     activeDebateId = payload.debate.id;
+    latestDebateId = payload.debate.id;
+    graphButton.disabled = false;
   } catch (error) {
     setRunningControls(false);
-    startButton.querySelector("span").textContent = "开始辩论";
-    speakerHint.textContent = "辩论创建失败";
-    setConnectionText("等待配置");
-    formMessage.textContent = error.message;
+    viewpointState.textContent = "待确认";
+    speakerHint.textContent = "辩论创建失败，请检查后重新确认";
+    setConnectionText("等待观点确认");
+    viewpointReviewMessage.textContent = error.message;
+    setViewpointReviewBusy(false);
     if (error.message.includes("API 密钥")) openApiKeyModal(error.message);
     return;
   }
 
+  isReviewingViewpoints = false;
+  pendingTopic = null;
+  viewpointReview.hidden = true;
+  syncSetupControls();
   stopButton.disabled = false;
   pauseButton.disabled = false;
-  startButton.querySelector("span").textContent = "开始辩论";
-  setConnectionText("辩论进行中");
-  roundNumber.textContent = "01";
-  affirmativeSpeech.textContent = "正方正在读取辩题，准备本轮发言。";
-  negativeSpeech.textContent = "反方等待正方完成本轮发言。";
+  viewpointState.textContent = "已确认";
+  setConnectionText("立论阶段进行中");
+  roundNumber.textContent = "立论";
+  affirmativeSpeech.textContent = "正方正在读取双方已确认的观点，准备立论。";
+  negativeSpeech.textContent = "反方已收到相同观点，等待正方完成立论。";
+  renderConfirmedViewpoints(viewpoints);
+  summaryState.textContent = "等待中";
   startPolling();
 }
 
@@ -626,9 +858,17 @@ topicInput.addEventListener("input", updateCharacterCount);
 affirmativeModel.addEventListener("change", updateSeatLabels);
 negativeModel.addEventListener("change", updateSeatLabels);
 topicInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !isRunning) startDebate();
+  if (event.key === "Enter" && !isRunning && !isReviewingViewpoints) {
+    generateViewpoints();
+  }
 });
-startButton.addEventListener("click", startDebate);
+startButton.addEventListener("click", () => generateViewpoints());
+affirmativeViewpoint.addEventListener("input", updateViewpointCount);
+negativeViewpoint.addEventListener("input", updateViewpointCount);
+cancelViewpointsButton.addEventListener("click", cancelViewpointReview);
+regenerateViewpointsButton.addEventListener("click", () => generateViewpoints(pendingTopic));
+confirmViewpointsButton.addEventListener("click", confirmViewpoints);
+graphButton.addEventListener("click", openArgumentGraph);
 pauseButton.addEventListener("click", togglePause);
 stopButton.addEventListener("click", stopDebate);
 apiSettingsButton.addEventListener("click", () => openApiKeyModal());
@@ -669,5 +909,7 @@ window.addEventListener("beforeunload", () => {
 
 setupModelPicker(affirmativeModel);
 setupModelPicker(negativeModel);
+setupModelPicker(viewpointModel);
+setupModelPicker(summaryModel);
 updateSeatLabels();
 checkConfiguration();

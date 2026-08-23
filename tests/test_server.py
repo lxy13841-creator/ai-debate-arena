@@ -5,10 +5,11 @@ import threading
 import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from urllib.request import Request, urlopen
 
 import server
+from debate_agent import SummaryResult, ViewpointResult
 
 
 class ServerApiTests(unittest.TestCase):
@@ -64,6 +65,13 @@ class ServerApiTests(unittest.TestCase):
         self.temporary_directory.cleanup()
 
     def request_json(self, path, method="GET", payload=None):
+        if path == "/api/debates" and method == "POST" and isinstance(payload, dict):
+            payload = dict(payload)
+            payload.setdefault("viewpointAgent", {"provider": "kimi"})
+            payload.setdefault(
+                "viewpoints",
+                {"affirmative": "正方确认观点", "negative": "反方确认观点"},
+            )
         body = None
         headers = {}
         if payload is not None:
@@ -92,6 +100,23 @@ class ServerApiTests(unittest.TestCase):
         debate = payload["debate"]
         self.assertEqual(debate["affirmative"]["model"], "kimi-test-model")
         self.assertEqual(debate["negative"]["model"], "deepseek-test-model")
+        self.assertEqual(debate["summarizer"], debate["negative"])
+        self.assertEqual(debate["schemaVersion"], 3)
+        self.assertEqual(debate["phase"], "opening")
+        self.assertEqual(debate["viewpoints"]["affirmative"], "正方确认观点")
+        self.assertEqual(debate["viewpointAgent"]["provider"], "kimi")
+        self.assertEqual(
+            debate["argumentGraph"],
+            {
+                "nodes": [],
+                "edges": [],
+                "updatedThroughRound": 0,
+                "resources": {
+                    "supportEvidence": {"used": 0, "limit": 4, "remaining": 4},
+                    "rebuttalEvidence": {"used": 0, "limit": 10, "remaining": 10},
+                },
+            },
+        )
         self.assertIsNone(debate["currentSpeaker"])
         record_file = server.DATA_DIR / debate["storageFile"]
         self.assertTrue(record_file.exists())
@@ -121,6 +146,10 @@ class ServerApiTests(unittest.TestCase):
                     "provider": "deepseek",
                     "model": "deepseek-v4-flash",
                 },
+                "summarizer": {
+                    "provider": "kimi",
+                    "model": "kimi-k2.6",
+                },
             },
         )
 
@@ -128,6 +157,142 @@ class ServerApiTests(unittest.TestCase):
         debate = payload["debate"]
         self.assertEqual(debate["affirmative"]["model"], "kimi-k3")
         self.assertEqual(debate["negative"]["model"], "deepseek-v4-flash")
+        self.assertEqual(
+            debate["summarizer"],
+            {"provider": "kimi", "model": "kimi-k2.6"},
+        )
+
+    def test_viewpoint_agent_generates_reviewable_positions(self):
+        fake_agent = Mock()
+        fake_agent.generate.return_value = ViewpointResult(
+            affirmative="人工智能利大于弊",
+            negative="人工智能弊大于利",
+        )
+        with patch.object(server, "ViewpointAgent", return_value=fake_agent) as agent_class:
+            status, payload = self.request_json(
+                "/api/viewpoints",
+                method="POST",
+                payload={
+                    "topic": "聊聊人工智能的影响",
+                    "agent": {"provider": "deepseek", "model": "deepseek-v4-flash"},
+                },
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["viewpoints"]["affirmative"], "人工智能利大于弊")
+        self.assertEqual(payload["viewpoints"]["negative"], "人工智能弊大于利")
+        agent_class.assert_called_once_with(
+            provider="deepseek",
+            model="deepseek-v4-flash",
+        )
+        fake_agent.generate.assert_called_once_with(
+            topic="聊聊人工智能的影响",
+            max_tokens=400,
+        )
+
+    def test_graph_update_persists_nodes_edges_and_summary_metadata(self):
+        _, payload = self.request_json(
+            "/api/debates",
+            method="POST",
+            payload={
+                "topic": "图谱持久化测试",
+                "affirmative": {"provider": "kimi"},
+                "negative": {"provider": "deepseek"},
+                "summarizer": {
+                    "provider": "kimi",
+                    "model": "kimi-k3",
+                },
+            },
+        )
+        debate = payload["debate"]
+        record_id = debate["id"]
+        with server.WRITE_LOCK:
+            record = server.read_record(record_id)
+            record["speeches"] = [
+                {
+                    "id": "speech_a",
+                    "round": 1,
+                    "side": "affirmative",
+                    "content": "正方主张",
+                },
+                {
+                    "id": "speech_n",
+                    "round": 1,
+                    "side": "negative",
+                    "content": "反方反驳",
+                },
+            ]
+            server.write_record(record)
+
+        server.save_graph_update(
+            record_id,
+            1,
+            SummaryResult(
+                nodes=[
+                    {
+                        "key": "a1",
+                        "side": "affirmative",
+                        "kind": "core_argument",
+                        "text": "正方主张",
+                        "sourceSpeechId": "speech_a",
+                        "sourceQuote": "正方主张",
+                    },
+                    {
+                        "key": "n1",
+                        "side": "negative",
+                        "kind": "core_argument",
+                        "text": "反方反驳",
+                        "sourceSpeechId": "speech_n",
+                        "sourceQuote": "反方反驳",
+                    },
+                    {
+                        "key": "a_support",
+                        "side": "affirmative",
+                        "kind": "support_evidence",
+                        "text": "正方支持材料",
+                        "sourceSpeechId": "speech_a",
+                        "sourceQuote": "正方主张",
+                    },
+                    {
+                        "key": "n_rebuttal",
+                        "side": "negative",
+                        "kind": "rebuttal_evidence",
+                        "text": "反方反驳材料",
+                        "sourceSpeechId": "speech_n",
+                        "sourceQuote": "反方反驳",
+                    },
+                ],
+                edges=[
+                    {"from": "n1", "to": "a1", "type": "rebuts"},
+                    {"from": "a_support", "to": "a1", "type": "supports"},
+                    {"from": "n_rebuttal", "to": "a1", "type": "rebuts"},
+                ],
+                status="completed",
+            ),
+        )
+
+        stored = server.read_record(record_id)
+        graph = stored["argumentGraph"]
+        self.assertEqual(graph["updatedThroughRound"], 1)
+        self.assertEqual(len(graph["nodes"]), 4)
+        self.assertEqual(len(graph["edges"]), 3)
+        self.assertEqual(graph["edges"][0]["type"], "rebuts")
+        self.assertIn(
+            graph["edges"][0]["from"],
+            {node["id"] for node in graph["nodes"]},
+        )
+        self.assertEqual(stored["roundSummaries"][0]["model"], "kimi-k3")
+        self.assertEqual(
+            graph["resources"],
+            {
+                "supportEvidence": {"used": 1, "limit": 4, "remaining": 3},
+                "rebuttalEvidence": {"used": 1, "limit": 10, "remaining": 9},
+            },
+        )
+        self.assertEqual(
+            stored["roundSummaries"][0]["resources"],
+            graph["resources"],
+        )
 
     def test_model_must_belong_to_selected_provider(self):
         self.assertFalse(
