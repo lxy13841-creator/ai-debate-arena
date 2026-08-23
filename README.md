@@ -2,6 +2,16 @@
 
 一个在本机运行的 AI 自动辩论网页应用。立场生成、正方、反方和客观总结 Agent 都可以自由选择 Kimi 或 DeepSeek。立场生成 Agent 先把自然语言凝练为双方观点，经用户二次确认后，双方依次立论并进入自由交锋；总结 Agent 在每轮双方发言后提取结构化交锋图数据，但不参与辩论或裁决。
 
+## 功能预览
+
+### 多 Agent 辩论流程
+
+![AI 辩论流程预览](assets/showcase-debate-flow.png)
+
+### 交锋图
+
+![AI 辩论交锋图预览](assets/showcase-argument-graph.png)
+
 ## 快速开始
 
 运行要求：Python 3.10 或更高版本。项目只使用 Python 标准库，不需要执行 `pip install`。
